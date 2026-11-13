@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Swim Tracker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Swim Tracker">
+<meta name="theme-color" content="#0b1324">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+:root{
+  --bg:#eef2f6; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
+  --accent:#0284c7; --accent-d:#075985; --accent-l:#e0f2fe;
+  --green:#16a34a; --danger:#dc2626; --amber:#fbbf24;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  -webkit-text-size-adjust:100%;touch-action:manipulation}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;touch-action:manipulation}
+input{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- generic ---------- */
+.page{max-width:1120px;margin:0 auto;
+  padding:calc(env(safe-area-inset-top) + 18px) calc(env(safe-area-inset-right) + 22px) calc(env(safe-area-inset-bottom) + 110px) calc(env(safe-area-inset-left) + 22px)}
+.top{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.top h1{font-size:30px;margin:0;flex:1;letter-spacing:-.5px}
+.btn{min-height:48px;padding:0 22px;border-radius:14px;font-weight:650;font-size:17px;background:var(--card);border:1.5px solid var(--line)}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.big{min-height:60px;font-size:20px;padding:0 30px;border-radius:16px}
+.btn.danger{color:var(--danger)}
+.btn.ghost{background:transparent}
+.btn:active{transform:scale(.97)}
+.card{background:var(--card);border-radius:18px;padding:16px 18px;border:1px solid var(--line)}
+.muted{color:var(--muted)}
+.row{display:flex;align-items:center;gap:12px}
+.grow{flex:1;min-width:0}
+.tabs{display:flex;gap:8px;margin:6px 0 14px}
+.tab{padding:10px 20px;border-radius:999px;font-weight:650;background:#dbe4ec}
+.tab.on{background:var(--ink);color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chip{min-height:44px;min-width:54px;padding:0 16px;border-radius:12px;background:#f1f5f9;border:1.5px solid var(--line);font-weight:600}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.seg{display:inline-flex;background:#dbe4ec;border-radius:12px;padding:3px}
+.seg button{min-height:42px;padding:0 18px;border-radius:10px;font-weight:650}
+.seg button.on{background:#fff;box-shadow:0 1px 3px #0002}
+.lbl{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 2px}
+input.txt{width:100%;min-height:48px;border-radius:12px;border:1.5px solid var(--line);padding:0 14px;background:#fff;font-size:18px}
+input.txt:focus{outline:2px solid var(--accent);border-color:transparent}
+.empty{padding:40px 10px;text-align:center;color:var(--muted)}
+.list{display:flex;flex-direction:column;gap:10px}
+.item{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px}
+.item .t{font-weight:700;font-size:18px}
+.item .s{color:var(--muted);font-size:15px;margin-top:2px}
+.sq{min-width:48px;min-height:48px;border-radius:12px;background:#f1f5f9;border:1.5px solid var(--line);font-weight:700;font-size:16px}
+.foot{position:fixed;left:0;right:0;bottom:0;background:#fffffff0;backdrop-filter:blur(8px);border-top:1px solid var(--line);
+  padding:12px calc(env(safe-area-inset-right) + 22px) calc(env(safe-area-inset-bottom) + 12px) calc(env(safe-area-inset-left) + 22px)}
+.foot .in{max-width:1120px;margin:0 auto;display:flex;align-items:center;gap:12px}
+
+/* ---------- builder ---------- */
+.setcard{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px}
+.setcard .n{width:34px;height:34px;border-radius:50%;background:var(--accent-l);color:var(--accent-d);font-weight:800;display:grid;place-items:center;flex:none}
+.setcard .main{font-size:22px;font-weight:750}
+.setcard .sub{color:var(--muted);margin-top:2px}
+.tag{display:inline-block;padding:2px 10px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:700;font-size:14px;margin-right:6px}
+.acts{display:flex;gap:6px}
+.acts .sq{min-width:44px;min-height:44px;font-size:15px}
+
+/* ---------- modal ---------- */
+.scrim{position:fixed;inset:0;background:#0f172a99;display:flex;align-items:center;justify-content:center;z-index:40;padding:16px}
+.sheet{background:var(--bg);border-radius:22px;width:min(760px,100%);max-height:calc(100vh - 32px);display:flex;flex-direction:column;overflow:hidden}
+.sheet-h{padding:16px 22px;font-size:22px;font-weight:800;background:#fff;border-bottom:1px solid var(--line)}
+.sheet-body{padding:6px 22px 18px;overflow:auto;-webkit-overflow-scrolling:touch}
+.sheet-f{padding:14px 22px;background:#fff;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:flex-end}
+.stepper{display:flex;align-items:center;gap:10px;margin-top:8px}
+.nin{width:96px;min-height:48px;text-align:center;border-radius:12px;border:1.5px solid var(--line);font-size:20px;font-weight:700;background:#fff}
+.tin{width:110px;min-height:48px;text-align:center;border-radius:12px;border:1.5px solid var(--line);font-size:22px;font-weight:750;background:#fff}
+.hint{font-size:14px;color:var(--muted);margin-top:6px}
+.hint.warn{color:#b45309}
+.dlg{background:#fff;border-radius:20px;padding:24px;width:min(460px,100%)}
+.dlg p{font-size:19px;margin:0 0 20px;line-height:1.35}
+.dlg .row{justify-content:flex-end}
+
+/* ---------- clock ---------- */
+.clock{position:fixed;inset:0;display:flex;flex-direction:column;color:#fff;transition:background .35s;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  -webkit-user-select:none;user-select:none}
+.ph-rep{background:#0b1324}
+.ph-rest{background:#0c3a6b}
+.ph-lead{background:#1e293b}
+.cbar{height:8px;background:#ffffff22}
+.cbar div{height:100%;width:0;background:#38bdf8}
+.ph-rest .cbar div{background:#bae6fd}
+.ctop{display:flex;align-items:center;justify-content:space-between;padding:12px 26px 0;font-size:20px;color:#cbd5e1;font-weight:600}
+.ctop .btn{min-height:44px;font-size:16px;background:#ffffff18;border-color:#ffffff30;color:#fff}
+.cmain{flex:1;display:flex;gap:26px;padding:8px 26px 8px;min-height:0}
+.cleft{flex:1.35;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0}
+.phase{font-size:clamp(18px,3.2vh,30px);letter-spacing:.18em;font-weight:750;color:#94a3b8}
+.big{font-size:min(40vh,25vw);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em;margin:6px 0}
+.warn .big{color:var(--amber)}
+.ph-rest .big{color:#e0f2fe}
+.swimmed{font-size:clamp(18px,3.4vh,30px);color:#94a3b8;font-variant-numeric:tabular-nums;min-height:1.3em}
+.cright{flex:1;display:flex;flex-direction:column;gap:14px;justify-content:center;min-width:0}
+.info{background:#ffffff12;border-radius:22px;padding:18px 22px}
+.info .k{font-size:clamp(14px,2.4vh,20px);letter-spacing:.12em;font-weight:700;color:#94a3b8}
+.info .m{font-size:clamp(34px,7.5vh,64px);font-weight:800;line-height:1.1;margin-top:4px}
+.info .sb{font-size:clamp(18px,3.4vh,30px);color:#fbbf24;font-weight:700;margin-top:4px;min-height:1.2em}
+.info .ln{font-size:clamp(16px,2.8vh,24px);color:#cbd5e1;margin-top:4px}
+.nxt{background:#ffffff0c;border-radius:18px;padding:12px 20px;font-size:clamp(17px,3vh,26px);color:#e2e8f0}
+.nxt b{color:#fff}
+.fin{min-height:19vh;border-radius:24px;background:#16a34a;color:#fff;font-size:clamp(26px,5vh,44px);font-weight:850;letter-spacing:.04em}
+.fin:active{transform:scale(.98);background:#15803d}
+.fin.done{background:#0f766e;font-size:clamp(20px,3.6vh,32px)}
+.fin.off{background:#ffffff10;color:#ffffff55;pointer-events:none}
+.cstats{display:flex;border-top:1px solid #ffffff22;padding:10px 26px 12px;gap:12px}
+.cstats div{flex:1;text-align:center}
+.cstats .v{font-size:clamp(22px,4.6vh,38px);font-weight:800;font-variant-numeric:tabular-nums}
+.cstats .k{font-size:clamp(12px,2vh,16px);letter-spacing:.12em;color:#94a3b8;font-weight:700}
+#flash{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:60}
+#flash.go{animation:fl .95s ease-out}
+@keyframes fl{0%{opacity:.92}100%{opacity:0}}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 100px);transform:translateX(-50%);background:#0f172a;color:#fff;padding:12px 22px;border-radius:999px;font-weight:650;opacity:0;pointer-events:none;transition:opacity .25s;z-index:70}
+#toast.show{opacity:1}
+
+/* ---------- summary ---------- */
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 18px}
+.tile .k{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font-size:36px;font-weight:800;margin-top:4px;letter-spacing:-.02em}
+.tile .u{font-size:17px;font-weight:650;color:var(--muted)}
+.tile .d{font-size:14px;color:var(--muted);margin-top:2px}
+.cols{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;margin-top:14px;align-items:start}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:6px 8px;border-bottom:1.5px solid var(--line)}
+td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top;font-size:16px}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+.times{color:var(--muted);font-size:14px;margin-top:2px;line-height:1.5}
+h3{margin:0 0 6px;font-size:18px}
+.note{margin-top:14px;font-size:14px;color:var(--muted);line-height:1.4}
+
+@media (orientation:portrait){
+  .cmain{flex-direction:column}
+  .big{font-size:min(30vh,34vw)}
+  .tiles{grid-template-columns:1fr 1fr}
+  .cols{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal"></div>
+<div id="dialog"></div>
+<div id="flash"></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* =========================================================
+   Swim Tracker — single-file offline web app
+   ========================================================= */
+
+// ---------- storage (localStorage, fails soft) ----------
+const mem = {};
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('swim.'+k); return v ? JSON.parse(v) : d; }catch(e){ return k in mem ? mem[k] : d; } },
+  set(k, v){ try{ localStorage.setItem('swim.'+k, JSON.stringify(v)); }catch(e){ mem[k] = v; } },
+  del(k){ try{ localStorage.removeItem('swim.'+k); }catch(e){} delete mem[k]; }
+};
+
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const clone = o => JSON.parse(JSON.stringify(o));
+const sum = a => a.reduce((x,y) => x + y, 0);
+const STROKES = ['Free','Back','Breast','Fly','IM','Choice'];
+const TYPES = ['Swim','Drill','Kick','Pull','Fast'];
+const LEAD = 5; // seconds of "get ready" before the first rep
+
+function fmt(sec){
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec/3600), m = Math.floor(sec%3600/60), s = sec%60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
+}
+function fmtT(sec){ // with tenths, for logged rep times
+  sec = Math.max(0, sec);
+  const m = Math.floor(sec/60), s = sec - m*60;
+  return `${m}:${s.toFixed(1).padStart(4,'0')}`;
+}
+function parseTime(str){
+  str = String(str).trim();
+  if(!str) return null;
+  if(str.includes(':')){
+    const [m, s] = str.split(':');
+    const v = (parseFloat(m)||0)*60 + (parseFloat(s)||0);
+    return isFinite(v) ? v : null;
+  }
+  const v = parseFloat(str);
+  return isFinite(v) ? v : null;
+}
+function poolLabel(p){ return Math.abs(p - 100/3) < 0.01 ? '33⅓' : String(+(+p).toFixed(2)); }
+function lengthsOf(dist, pool){ const l = dist/pool; return {l, whole: Math.abs(l - Math.round(l)) < 0.02}; }
+function fmtDist(n){ return Math.round(n).toLocaleString(); }
+function fmtDate(ts){
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) + ' · ' +
+         d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+}
+function strokeText(s){ return s.strokes.join(' / '); }
+function setText(s){ return `${s.reps} × ${s.dist} ${strokeText(s)}`; }
+function typeText(s){ return s.type === 'Swim' ? '' : s.type + (s.type === 'Drill' && s.drill ? ' · ' + s.drill : ''); }
+function newWorkout(){ return {id: uid(), name: '', unit: 'yd', pool: 25, sets: []}; }
+function newSet(from){
+  return from ? Object.assign(clone(from), {id: uid()})
+              : {id: uid(), reps: 4, dist: 100, strokes: ['Free'], type: 'Swim', drill: '', interval: 90, rest: 0};
+}
+function workoutStats(w){
+  const dist = sum(w.sets.map(s => s.reps * s.dist));
+  let t = 0;
+  w.sets.forEach((s,i) => { t += s.reps * s.interval; if(i < w.sets.length-1) t += s.rest; });
+  return {dist, time: t, lengths: dist / w.pool};
+}
+
+// ---------- state ----------
+const S = {
+  screen: 'home', tab: 'templates',
+  templates: store.get('templates', []),
+  history: store.get('history', []),
+  draft: store.get('draft', null) || newWorkout(),
+  edit: null, dlg: null, run: null, summary: null
+};
+const saveDraft = () => store.set('draft', S.draft);
+
+// ---------- plan / engine ----------
+function buildPlan(w){
+  const segs = [{type:'lead', start:0, dur:LEAD}];
+  let t = LEAD;
+  w.sets.forEach((s, si) => {
+    for(let ri = 0; ri < s.reps; ri++){
+      segs.push({type:'rep', si, ri, key: si+'-'+ri, start:t, dur:s.interval,
+        stroke: s.strokes[ri % s.strokes.length], dist:s.dist, typ:s.type, drill:s.drill,
+        lastOfSet: ri === s.reps-1});
+      t += s.interval;
+    }
+    if(s.rest > 0 && si < w.sets.length-1){
+      segs.push({type:'rest', si, start:t, dur:s.rest});
+      t += s.rest;
+    }
+  });
+  return {segs, total: t};
+}
+function repLine(seg){ return `${seg.dist} ${seg.stroke}`; }
+function repSub(seg){ return seg.typ === 'Swim' ? '' : seg.typ + (seg.typ === 'Drill' && seg.drill ? ' · ' + seg.drill : ''); }
+
+let wakeLockObj = null;
+async function wakeLock(){
+  try{ if('wakeLock' in navigator && S.run && !S.run.ended) wakeLockObj = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+function releaseWake(){ try{ if(wakeLockObj){ wakeLockObj.release(); wakeLockObj = null; } }catch(e){} }
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') wakeLock(); });
+
+function persistRun(){
+  const r = S.run;
+  if(r) store.set('run', {w:r.w, startMs:r.startMs, taps:r.taps});
+}
+function startWorkout(){
+  const w = S.draft;
+  if(!w.sets.length){ toast('Add a set first'); return; }
+  launchRun(clone(w), Date.now(), {});
+}
+function launchRun(w, startMs, taps){
+  const {segs, total} = buildPlan(w);
+  S.run = {w, segs, total, startMs, taps, idx:-1, timer:null, ended:false};
+  persistRun();
+  S.screen = 'clock'; S.edit = null;
+  render();
+  wakeLock();
+  S.run.timer = setInterval(tick, 100);
+  tick();
+}
+function tick(){
+  const r = S.run; if(!r || r.ended) return;
+  const el = (Date.now() - r.startMs) / 1000;
+  if(el >= r.total){ endRun(r.total); return; }
+  let i = Math.max(0, r.idx);
+  while(i < r.segs.length-1 && el >= r.segs[i].start + r.segs[i].dur) i++;
+  if(i !== r.idx){
+    const first = r.idx === -1;
+    r.idx = i;
+    render();
+    if(!first || r.segs[i].type !== 'lead') flash(r.segs[i].type === 'rest' ? '#3b82f6' : '#22c55e');
+  }
+  updateClock(el);
+}
+function tapFinish(){
+  const r = S.run; if(!r || r.ended) return;
+  const seg = r.segs[r.idx]; if(!seg || seg.type !== 'rep') return;
+  const el = (Date.now() - r.startMs) / 1000;
+  r.taps[seg.key] = Math.round((el - seg.start) * 10) / 10;
+  persistRun();
+  if(r.idx === r.segs.length-1){ endRun(el); return; } // finished the very last rep
+  updateClock(el);
+}
+function computeRecord(r, el){
+  const reps = [];
+  r.segs.forEach(seg => {
+    if(seg.type !== 'rep') return;
+    const tap = r.taps[seg.key];
+    const done = tap != null || el >= seg.start + seg.dur - 0.01;
+    if(done) reps.push({si:seg.si, ri:seg.ri, stroke:seg.stroke, dist:seg.dist, typ:seg.typ, drill:seg.drill, tap: tap != null ? tap : null});
+  });
+  return {
+    id: uid(), date: r.startMs, name: r.w.name || 'Swim workout', unit: r.w.unit, pool: r.w.pool,
+    totalTime: Math.max(0, Math.min(el, r.total) - LEAD), reps, sets: r.w.sets
+  };
+}
+function endRun(el){
+  const r = S.run; if(!r || r.ended) return;
+  r.ended = true; clearInterval(r.timer);
+  releaseWake(); store.del('run');
+  const rec = computeRecord(r, el);
+  if(rec.reps.length){
+    S.history.unshift(rec); store.set('history', S.history);
+  }
+  S.run = null;
+  S.summary = {rec, from: 'run', saved: rec.reps.length > 0};
+  S.screen = 'summary';
+  render();
+  if(rec.reps.length) flash('#a855f7');
+}
+function resumeRun(){
+  const saved = store.get('run', null);
+  if(!saved) return;
+  const {segs, total} = buildPlan(saved.w);
+  const el = (Date.now() - saved.startMs) / 1000;
+  if(el > total + 1800){ store.del('run'); return; }
+  S.run = {w:saved.w, segs, total, startMs:saved.startMs, taps:saved.taps||{}, idx:-1, timer:null, ended:false};
+  if(el >= total){ endRun(total); return; }
+  S.screen = 'clock'; render(); wakeLock();
+  S.run.timer = setInterval(tick, 100); tick();
+}
+
+// ---------- stats ----------
+function stats(rec){
+  const reps = rec.reps;
+  const dist = sum(reps.map(r => r.dist));
+  const timed = reps.filter(r => r.tap != null);
+  const tD = sum(timed.map(r => r.dist)), tT = sum(timed.map(r => r.tap));
+  const pace = tD > 0 ? tT / tD * 100 : null;
+  const untimedD = dist - tD;
+  let swim = null, est = false;
+  if(timed.length){ swim = tT + (untimedD > 0 ? untimedD * pace / 100 : 0); est = untimedD > 0; }
+  const group = (keyFn, order) => {
+    const m = new Map();
+    reps.forEach(r => {
+      const k = keyFn(r);
+      const g = m.get(k) || {key:k, dist:0, n:0, tD:0, tT:0};
+      g.dist += r.dist; g.n++;
+      if(r.tap != null){ g.tD += r.dist; g.tT += r.tap; }
+      m.set(k, g);
+    });
+    const out = [...m.values()].map(g => Object.assign(g, {pace: g.tD > 0 ? g.tT / g.tD * 100 : null}));
+    if(order) out.sort((a,b) => order.indexOf(a.key) - order.indexOf(b.key));
+    return out;
+  };
+  const bySet = [];
+  rec.sets.forEach((s, si) => {
+    const rr = reps.filter(r => r.si === si);
+    if(!rr.length) return;
+    const td = sum(rr.filter(r => r.tap != null).map(r => r.dist));
+    const tt = sum(rr.filter(r => r.tap != null).map(r => r.tap));
+    bySet.push({si, s, rr, dist: sum(rr.map(r => r.dist)), pace: td > 0 ? tt / td * 100 : null});
+  });
+  return {
+    dist, lengths: dist / rec.pool, pace, swim, est,
+    rest: swim != null ? Math.max(0, rec.totalTime - swim) : null,
+    timedCount: timed.length, repCount: reps.length,
+    byStroke: group(r => r.stroke, STROKES), byType: group(r => r.typ, TYPES), bySet
+  };
+}
+
+// ---------- rendering ----------
+function render(){
+  const screens = {home:homeHTML, builder:builderHTML, clock:clockHTML, summary:summaryHTML};
+  $('#app').innerHTML = screens[S.screen]();
+  renderModal(); renderDialog();
+  if(S.screen === 'clock' && S.run) updateClock((Date.now() - S.run.startMs)/1000);
+  window.scrollTo(0, 0);
+}
+
+// ----- home -----
+function homeHTML(){
+  const t = S.tab;
+  let body = '';
+  if(t === 'templates'){
+    body = S.templates.length ? `<div class="list">${S.templates.map(w => {
+      const st = workoutStats(w);
+      return `<div class="item">
+        <div class="grow" data-act="loadT" data-id="${w.id}" style="cursor:pointer">
+          <div class="t">${esc(w.name || 'Untitled workout')}</div>
+          <div class="s">${w.sets.length} sets · ${fmtDist(st.dist)} ${w.unit} · ${poolLabel(w.pool)} ${w.unit} pool · ~${fmt(st.time)}</div>
+        </div>
+        <button class="btn" data-act="startT" data-id="${w.id}">Start</button>
+        <button class="btn" data-act="loadT" data-id="${w.id}">Edit</button>
+        <button class="btn" data-act="dupT" data-id="${w.id}">Copy</button>
+        <button class="btn danger" data-act="delT" data-id="${w.id}">Delete</button>
+      </div>`; }).join('')}</div>`
+      : `<div class="empty">No templates yet.<br>Write a workout and tap “Save template” to reuse it.</div>`;
+  } else {
+    body = S.history.length ? `<div class="list">${S.history.map(rec => {
+      const d = sum(rec.reps.map(r => r.dist));
+      return `<div class="item" data-act="viewH" data-id="${rec.id}" style="cursor:pointer">
+        <div class="grow">
+          <div class="t">${esc(rec.name)}</div>
+          <div class="s">${fmtDate(rec.date)}</div>
+        </div>
+        <div style="text-align:right"><div class="t num">${fmtDist(d)} ${rec.unit}</div><div class="s num">${fmt(rec.totalTime)}</div></div>
+        <button class="btn danger" data-act="delH" data-id="${rec.id}">Delete</button>
+      </div>`; }).join('')}</div>`
+      : `<div class="empty">No swims logged yet.<br>Finished workouts are saved here automatically.</div>`;
+  }
+  return `<div class="page">
+    <div class="top"><h1>🏊 Swim Tracker</h1>
+      <button class="btn primary big" data-act="new">+ New workout</button></div>
+    <div class="tabs">
+      <button class="tab ${t==='templates'?'on':''}" data-act="tab" data-v="templates">Templates (${S.templates.length})</button>
+      <button class="tab ${t==='history'?'on':''}" data-act="tab" data-v="history">History (${S.history.length})</button>
+    </div>
+    ${S.draft.sets.length ? `<div class="card" style="margin-bottom:14px"><div class="row"><div class="grow"><b>Workout in progress:</b> ${esc(S.draft.name || 'Untitled')} · ${S.draft.sets.length} sets</div><button class="btn" data-act="resumeDraft">Continue editing</button></div></div>` : ''}
+    ${body}
+  </div>`;
+}
+
+// ----- builder -----
+function poolChips(w){
+  const opts = w.unit === 'yd' ? [25, 100/3, 50] : [25, 50];
+  const isPreset = opts.some(o => Math.abs(o - w.pool) < 0.01);
+  return `<div class="chips">${opts.map(o => `<button class="chip ${Math.abs(o-w.pool)<0.01?'on':''}" data-act="pool" data-v="${o}">${poolLabel(o)}</button>`).join('')}
+    <input class="nin" style="width:110px;${!isPreset?'border-color:var(--accent)':''}" inputmode="decimal" placeholder="Custom" data-bind="pool" value="${isPreset?'':esc(poolLabel(w.pool))}"></div>`;
+}
+function builderHTML(){
+  const w = S.draft, st = workoutStats(w);
+  const cards = w.sets.map((s, i) => {
+    const lw = lengthsOf(s.dist, w.pool);
+    return `<div class="setcard">
+      <div class="n">${i+1}</div>
+      <div class="grow">
+        <div class="main num">${esc(setText(s))}</div>
+        <div class="sub">${s.type !== 'Swim' ? `<span class="tag">${esc(typeText(s))}</span>` : ''}
+          @ ${fmt(s.interval)}${s.rest > 0 && i < w.sets.length-1 ? ` · ${fmt(s.rest)} rest after` : ''}
+          ${s.strokes.length > 1 ? ' · alternating strokes' : ''}
+          ${!lw.whole ? ` · <span style="color:#b45309">not whole lengths</span>` : ''}</div>
+      </div>
+      <div class="acts">
+        <button class="sq" data-act="up" data-i="${i}" ${i===0?'disabled style="opacity:.35"':''}>▲</button>
+        <button class="sq" data-act="down" data-i="${i}" ${i===w.sets.length-1?'disabled style="opacity:.35"':''}>▼</button>
+        <button class="btn" style="min-height:44px" data-act="editset" data-i="${i}">Edit</button>
+        <button class="btn" style="min-height:44px" data-act="copyset" data-i="${i}">Copy</button>
+        <button class="sq danger" data-act="delset" data-i="${i}" style="color:var(--danger)">✕</button>
+      </div></div>`;
+  }).join('');
+  return `<div class="page">
+    <div class="top">
+      <button class="btn" data-act="home">‹ Home</button>
+      <h1>Workout</h1>
+    </div>
+    <div class="card">
+      <div class="lbl" style="margin-top:0">Name</div>
+      <input class="txt" data-bind="name" placeholder="e.g. Tuesday threshold set" value="${esc(w.name)}">
+      <div class="row" style="align-items:flex-start;gap:30px;flex-wrap:wrap">
+        <div><div class="lbl">Units</div>
+          <div class="seg" style="margin-top:8px"><button class="${w.unit==='yd'?'on':''}" data-act="unit" data-v="yd">Yards</button><button class="${w.unit==='m'?'on':''}" data-act="unit" data-v="m">Meters</button></div></div>
+        <div class="grow"><div class="lbl">Pool length (${w.unit})</div>${poolChips(w)}</div>
+      </div>
+    </div>
+    <div class="lbl">Sets</div>
+    <div class="list" style="margin-top:8px">
+      ${cards || `<div class="empty card">No sets yet — tap “Add set” to start writing your workout.</div>`}
+      <button class="btn big" data-act="addset" style="border-style:dashed;border-color:var(--accent);color:var(--accent)">+ Add set</button>
+    </div>
+  </div>
+  <div class="foot"><div class="in">
+    <div class="grow num"><b style="font-size:19px">${fmtDist(st.dist)} ${w.unit}</b>
+      <span class="muted"> · ${w.sets.length} sets · ${st.lengths % 1 ? st.lengths.toFixed(1) : st.lengths} lengths · ~${fmt(st.time)}</span></div>
+    <button class="btn" data-act="savetpl">Save template</button>
+    <button class="btn primary big" data-act="start" ${w.sets.length?'':'style="opacity:.5"'}>▶ Start</button>
+  </div></div>`;
+}
+
+// ----- set editor modal -----
+function timeCtl(field, val, step, chips){
+  return `<div class="stepper">
+      <button class="sq" data-act="e-time" data-field="${field}" data-d="${-step}">−${step}s</button>
+      <input class="tin" type="text" data-ebind="${field}" value="${fmt(val)}" aria-label="${field}">
+      <button class="sq" data-act="e-time" data-field="${field}" data-d="${step}">+${step}s</button>
+    </div>
+    <div class="chips">${chips.map(c => `<button class="chip ${val===c?'on':''}" data-act="e-time" data-field="${field}" data-set="${c}">${c===0?'None':fmt(c)}</button>`).join('')}</div>`;
+}
+function distHint(){
+  const e = S.edit, w = S.draft, s = e.set, lw = lengthsOf(s.dist, w.pool);
+  return lw.whole
+    ? `${s.dist} ${w.unit} = ${Math.round(lw.l)} length${Math.round(lw.l)===1?'':'s'} of ${poolLabel(w.pool)} ${w.unit}`
+    : `⚠ ${s.dist} ${w.unit} isn't a whole number of ${poolLabel(w.pool)}-${w.unit} lengths`;
+}
+function editorHTML(){
+  const e = S.edit, s = e.set, w = S.draft;
+  const dists = [25, 50, 75, 100, 150, 200, 300, 400, 500];
+  const lw = lengthsOf(s.dist, w.pool);
+  return `<div class="scrim"><div class="sheet">
+    <div class="sheet-h">${e.idx == null ? 'Add set' : 'Edit set ' + (e.idx+1)}</div>
+    <div class="sheet-body">
+      <div class="lbl">Reps</div>
+      <div class="stepper">
+        <button class="sq" data-act="e-reps" data-d="-1">−</button>
+        <input class="nin" inputmode="numeric" data-ebind="reps" value="${s.reps}">
+        <button class="sq" data-act="e-reps" data-d="1">+</button>
+      </div>
+
+      <div class="lbl">Distance per rep (${w.unit})</div>
+      <div class="chips">${dists.map(d => `<button class="chip ${s.dist===d?'on':''}" data-act="e-dist" data-v="${d}">${d}</button>`).join('')}
+        <input class="nin" style="width:100px" inputmode="numeric" placeholder="Other" data-ebind="dist" value="${dists.includes(s.dist)?'':s.dist}"></div>
+      <div class="hint ${lw.whole?'':'warn'}" id="disthint">${esc(distHint())}</div>
+
+      <div class="lbl">Stroke</div>
+      <div class="chips">${STROKES.map(k => `<button class="chip ${s.strokes.includes(k)?'on':''}" data-act="e-stroke" data-v="${k}">${k}</button>`).join('')}</div>
+      <div class="hint">${s.strokes.length > 1 ? 'Alternating each rep: ' + esc(s.strokes.join(' → ')) + ' → …' : 'Pick more than one to alternate strokes rep by rep.'}</div>
+
+      <div class="lbl">Type</div>
+      <div class="chips">${TYPES.map(k => `<button class="chip ${s.type===k?'on':''}" data-act="e-type" data-v="${k}">${k}</button>`).join('')}</div>
+      ${s.type === 'Drill' ? `<div class="lbl">Drill name</div><input class="txt" data-ebind="drill" placeholder="e.g. Catch-up, Fingertip drag" value="${esc(s.drill)}">` : ''}
+
+      <div class="lbl">Send-off interval</div>
+      ${timeCtl('interval', s.interval, 5, [30,45,60,75,90,120])}
+      <div class="hint">A new rep starts on the clock every interval. Rest is whatever is left after you swim.</div>
+
+      <div class="lbl">Rest after this set</div>
+      ${timeCtl('rest', s.rest, 5, [0,15,30,45,60,120])}
+      <div class="hint">Extra break before the next set starts (not used after the last set).</div>
+    </div>
+    <div class="sheet-f">
+      <button class="btn" data-act="e-cancel">Cancel</button>
+      <button class="btn primary" data-act="e-save">${e.idx == null ? 'Add set' : 'Save set'}</button>
+    </div>
+  </div></div>`;
+}
+function renderModal(){
+  const m = $('#modal');
+  const sb = m.querySelector('.sheet-body'); const top = sb ? sb.scrollTop : 0;
+  m.innerHTML = S.edit ? editorHTML() : '';
+  const nb = m.querySelector('.sheet-body'); if(nb) nb.scrollTop = top;
+}
+function renderDialog(){
+  $('#dialog').innerHTML = S.dlg ? `<div class="scrim" style="z-index:80"><div class="dlg"><p>${esc(S.dlg.text)}</p>
+    <div class="row"><button class="btn" data-act="dlg-cancel">Cancel</button>
+    <button class="btn primary ${S.dlg.danger?'':''}" ${S.dlg.danger?'style="background:var(--danger);border-color:var(--danger)"':''} data-act="dlg-ok">${esc(S.dlg.ok)}</button></div></div></div>` : '';
+}
+function ask(text, ok, fn, danger){ S.dlg = {text, ok, fn, danger}; renderDialog(); }
+
+// ----- clock -----
+function clockHTML(){
+  const r = S.run; if(!r) return '';
+  const seg = r.segs[r.idx < 0 ? 0 : r.idx];
+  return `<div class="clock ph-${seg.type}" id="clockroot">
+    <div class="cbar"><div id="cbarfill"></div></div>
+    <div class="ctop"><span>${esc(r.w.name || 'Swim workout')}</span><button class="btn" data-act="endask">End workout</button></div>
+    <div class="cmain">
+      <div class="cleft">
+        <div class="phase" id="phase"></div>
+        <div class="big" id="big">0:00</div>
+        <div class="swimmed" id="swimmed"></div>
+      </div>
+      <div class="cright">
+        <div class="info">
+          <div class="k" id="ik"></div>
+          <div class="m" id="im"></div>
+          <div class="sb" id="isb"></div>
+          <div class="ln" id="iln"></div>
+        </div>
+        <div class="nxt" id="nxt"></div>
+        <button class="fin" id="fin" data-act="tap"></button>
+      </div>
+    </div>
+    <div class="cstats">
+      <div><div class="v" id="s-el">0:00</div><div class="k">ELAPSED</div></div>
+      <div><div class="v" id="s-done">0</div><div class="k">${esc(r.w.unit.toUpperCase())} DONE</div></div>
+      <div><div class="v" id="s-left">0</div><div class="k">${esc(r.w.unit.toUpperCase())} LEFT</div></div>
+      <div><div class="v" id="s-set">1/1</div><div class="k">SET</div></div>
+    </div>
+  </div>`;
+}
+function describeNext(r){
+  const nx = r.segs[r.idx+1]; if(!nx) return 'Last one — finish strong';
+  if(nx.type === 'rest') return `Next: <b>${fmt(nx.dur)} rest</b>`;
+  if(nx.type === 'rep'){
+    const cur = r.segs[r.idx];
+    const newSet = cur.type !== 'rep' || nx.si !== cur.si;
+    const sub = repSub(nx);
+    if(newSet){
+      const s = r.w.sets[nx.si];
+      return `Next set: <b>${esc(setText(s))}</b> @ ${fmt(s.interval)}${sub ? ' · ' + esc(sub) : ''}`;
+    }
+    return `Next: <b>${esc(repLine(nx))}</b>${sub ? ' · ' + esc(sub) : ''}`;
+  }
+  return '';
+}
+function updateClock(el){
+  const r = S.run; if(!r) return;
+  const seg = r.segs[r.idx < 0 ? 0 : r.idx]; if(!seg) return;
+  const left = Math.max(0, seg.start + seg.dur - el);
+  const root = $('#clockroot'); if(!root) return;
+  const big = Math.ceil(left - 0.0001);
+  $('#big').textContent = fmt(big);
+  root.classList.toggle('warn', seg.type === 'rep' && big <= 5 && big > 0 || (seg.type==='lead'));
+  $('#cbarfill').style.width = Math.min(100, (el - seg.start) / seg.dur * 100) + '%';
+  const isLastRep = r.idx === r.segs.length-1;
+  const nSets = r.w.sets.length;
+  let phase = '', ik = '', im = '', isb = '', iln = '', sw = '';
+  if(seg.type === 'lead'){
+    phase = 'GET READY';
+    const s0 = r.w.sets[0];
+    ik = 'FIRST SET'; im = setText(s0); isb = typeText(s0);
+  } else if(seg.type === 'rest'){
+    phase = 'REST';
+    const nxs = r.w.sets[seg.si + 1];
+    ik = `REST AFTER SET ${seg.si+1}`; im = 'Breathe'; iln = `Up next: ${setText(nxs)}`;
+  } else {
+    phase = isLastRep ? 'WORKOUT ENDS IN' : (seg.lastOfSet ? 'SET ENDS IN' : 'SEND-OFF IN');
+    const s = r.w.sets[seg.si];
+    ik = `SET ${seg.si+1} OF ${nSets} · REP ${seg.ri+1} OF ${s.reps}`;
+    im = repLine(seg); isb = repSub(seg);
+    const lw = lengthsOf(seg.dist, r.w.pool);
+    iln = lw.whole ? `${Math.round(lw.l)} length${Math.round(lw.l)===1?'':'s'} of ${poolLabel(r.w.pool)} ${r.w.unit}` : '';
+    sw = `On this rep: ${fmt(Math.floor(el - seg.start))}`;
+  }
+  $('#phase').textContent = phase;
+  $('#swimmed').textContent = sw;
+  $('#ik').textContent = ik; $('#im').textContent = im; $('#isb').textContent = isb; $('#iln').textContent = iln;
+  $('#nxt').innerHTML = describeNext(r);
+  const fin = $('#fin');
+  if(seg.type === 'rep'){
+    const t = r.taps[seg.key];
+    if(t != null){ fin.className = 'fin done'; fin.innerHTML = `✓ Logged ${fmtT(t)}<br><span style="font-size:.6em;font-weight:600">tap again to update</span>`; }
+    else { fin.className = 'fin'; fin.textContent = isLastRep ? 'FINISH WORKOUT' : 'FINISH REP'; }
+  } else { fin.className = 'fin off'; fin.textContent = seg.type === 'rest' ? 'Resting…' : 'Get ready…'; }
+  // distance stats
+  let done = 0, total = 0;
+  r.segs.forEach(sg => { if(sg.type !== 'rep') return; total += sg.dist;
+    if(r.taps[sg.key] != null || el >= sg.start + sg.dur) done += sg.dist; });
+  $('#s-el').textContent = fmt(Math.max(0, el - LEAD));
+  $('#s-done').textContent = fmtDist(done);
+  $('#s-left').textContent = fmtDist(total - done);
+  $('#s-set').textContent = (seg.type === 'lead' ? 1 : Math.min(seg.si + 1, nSets)) + '/' + nSets;
+}
+function flash(color){
+  const f = $('#flash'); f.style.background = color;
+  f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+}
+
+// ----- summary -----
+function summaryHTML(){
+  const {rec, from, saved} = S.summary;
+  const st = stats(rec), u = rec.unit;
+  const paceStr = st.pace != null ? fmt(st.pace) : '—';
+  const tile = (k, v, unit, d) => `<div class="tile"><div class="k">${k}</div><div class="v num">${v}<span class="u"> ${unit||''}</span></div><div class="d">${d||'&nbsp;'}</div></div>`;
+  const setRows = st.bySet.map(b => {
+    const planned = b.s.reps;
+    return `<tr><td><b>${b.si+1}. ${esc(setText(b.s))}</b>${typeText(b.s) ? ` <span class="tag" style="font-size:12px">${esc(typeText(b.s))}</span>` : ''}
+        ${b.rr.length < planned ? `<span class="muted"> (${b.rr.length} of ${planned} done)</span>` : ''}
+        <div class="times num">${b.rr.map(r => r.tap != null ? fmtT(r.tap) : '—').join(' · ')}</div></td>
+      <td class="r num">${fmtDist(b.dist)}</td><td class="r num">${b.pace != null ? fmt(b.pace) : '—'}</td></tr>`;
+  }).join('');
+  const grpRows = arr => arr.map(g => `<tr><td><b>${esc(g.key)}</b></td><td class="r num">${fmtDist(g.dist)}</td><td class="r num">${g.pace != null ? fmt(g.pace) : '—'}</td></tr>`).join('');
+  return `<div class="page">
+    <div class="top">
+      <button class="btn" data-act="${from==='run'?'home':'back-hist'}">${from==='run'?'Done':'‹ History'}</button>
+      <div class="grow"><h1 style="font-size:28px">${esc(rec.name)}</h1><div class="muted">${fmtDate(rec.date)} · ${poolLabel(rec.pool)} ${u} pool</div></div>
+      <button class="btn" data-act="again">Swim again</button>
+    </div>
+    ${from==='run' ? `<div class="muted" style="margin:-6px 0 12px">${saved ? '✓ Saved to history' : 'Nothing completed, so nothing was saved.'}</div>` : ''}
+    <div class="tiles">
+      ${tile('Distance', fmtDist(st.dist), u, `${st.lengths % 1 ? st.lengths.toFixed(1) : st.lengths} lengths`)}
+      ${tile('Total time', fmt(rec.totalTime), '', 'start to finish')}
+      ${tile('Swim time', st.swim != null ? fmt(st.swim) : '—', '', st.swim != null ? `${fmt(st.rest)} resting${st.est ? ' · est.' : ''}` : 'tap Finish to time reps')}
+      ${tile('Avg pace', paceStr, '/100 ' + u, st.timedCount ? `from ${st.timedCount} timed rep${st.timedCount===1?'':'s'}` : 'no timed reps')}
+    </div>
+    <div class="cols">
+      <div class="card"><h3>Sets</h3>
+        <table><tr><th>Set &amp; rep times</th><th class="r">${u}</th><th class="r">Pace /100</th></tr>${setRows || '<tr><td colspan="3" class="muted">No completed reps.</td></tr>'}</table></div>
+      <div>
+        <div class="card"><h3>By stroke</h3>
+          <table><tr><th>Stroke</th><th class="r">${u}</th><th class="r">Pace /100</th></tr>${grpRows(st.byStroke) || '<tr><td colspan="3" class="muted">—</td></tr>'}</table></div>
+        <div class="card" style="margin-top:14px"><h3>By type</h3>
+          <table><tr><th>Type</th><th class="r">${u}</th><th class="r">Pace /100</th></tr>${grpRows(st.byType) || '<tr><td colspan="3" class="muted">—</td></tr>'}</table></div>
+      </div>
+    </div>
+    <div class="note">Pace and swim time come from reps where you tapped Finish at the wall.${st.est ? ' Swim time estimates untimed reps at your average timed pace.' : ''} Reps you didn't tap still count toward distance once their interval passes.</div>
+  </div>`;
+}
+
+// ---------- toast ----------
+let toastT;
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ---------- actions ----------
+const go = scr => { S.screen = scr; render(); };
+const findT = id => S.templates.find(t => t.id === id);
+const acts = {
+  new(){ S.draft = newWorkout(); saveDraft(); go('builder'); },
+  resumeDraft(){ go('builder'); },
+  tab(el){ S.tab = el.dataset.v; render(); },
+  home(){ S.summary = null; go('home'); },
+  'back-hist'(){ S.tab = 'history'; S.summary = null; go('home'); },
+  loadT(el){ const t = findT(el.dataset.id); if(t){ S.draft = clone(t); saveDraft(); go('builder'); } },
+  startT(el){ const t = findT(el.dataset.id); if(t){ S.draft = clone(t); saveDraft(); startWorkout(); } },
+  dupT(el){ const t = findT(el.dataset.id); if(!t) return;
+    const c = clone(t); c.id = uid(); c.name = (t.name || 'Untitled') + ' (copy)';
+    S.templates.unshift(c); store.set('templates', S.templates); render(); toast('Template copied'); },
+  delT(el){ const id = el.dataset.id, t = findT(id); if(!t) return;
+    ask(`Delete template “${t.name || 'Untitled'}”?`, 'Delete', () => { S.templates = S.templates.filter(x => x.id !== id); store.set('templates', S.templates); render(); }, true); },
+  viewH(el){ const rec = S.history.find(r => r.id === el.dataset.id); if(rec){ S.summary = {rec, from:'history'}; go('summary'); } },
+  delH(el, ev){ ev.stopPropagation(); const id = el.dataset.id, rec = S.history.find(r => r.id === id); if(!rec) return;
+    ask(`Delete “${rec.name}” from ${fmtDate(rec.date)}?`, 'Delete', () => { S.history = S.history.filter(x => x.id !== id); store.set('history', S.history); render(); }, true); },
+  again(){ const rec = S.summary.rec; S.draft = {id: uid(), name: rec.name, unit: rec.unit, pool: rec.pool, sets: clone(rec.sets)}; saveDraft(); S.summary = null; go('builder'); },
+
+  // builder
+  unit(el){ S.draft.unit = el.dataset.v; saveDraft(); render(); },
+  pool(el){ S.draft.pool = parseFloat(el.dataset.v); saveDraft(); render(); },
+  addset(){ const last = S.draft.sets[S.draft.sets.length-1]; S.edit = {idx:null, set:newSet(last)}; renderModal(); },
+  editset(el){ const i = +el.dataset.i; S.edit = {idx:i, set:clone(S.draft.sets[i])}; renderModal(); },
+  copyset(el){ const i = +el.dataset.i; S.draft.sets.splice(i+1, 0, newSet(S.draft.sets[i])); saveDraft(); render(); },
+  up(el){ const i = +el.dataset.i; if(i > 0){ const a = S.draft.sets; [a[i-1], a[i]] = [a[i], a[i-1]]; saveDraft(); render(); } },
+  down(el){ const i = +el.dataset.i, a = S.draft.sets; if(i < a.length-1){ [a[i+1], a[i]] = [a[i], a[i+1]]; saveDraft(); render(); } },
+  delset(el){ const i = +el.dataset.i; S.draft.sets.splice(i, 1); saveDraft(); render(); },
+  savetpl(){
+    const w = S.draft; if(!w.sets.length){ toast('Add a set first'); return; }
+    if(!w.name.trim()) w.name = 'Workout ' + (S.templates.length + 1);
+    const c = clone(w), i = S.templates.findIndex(t => t.id === w.id);
+    if(i >= 0) S.templates[i] = c; else S.templates.unshift(c);
+    store.set('templates', S.templates); saveDraft(); render(); toast('Template saved');
+  },
+  start(){ startWorkout(); },
+
+  // set editor
+  'e-reps'(el){ const s = S.edit.set; s.reps = Math.min(99, Math.max(1, s.reps + (+el.dataset.d))); renderModal(); },
+  'e-dist'(el){ S.edit.set.dist = +el.dataset.v; renderModal(); },
+  'e-stroke'(el){ const s = S.edit.set, k = el.dataset.v, i = s.strokes.indexOf(k);
+    if(i >= 0){ if(s.strokes.length > 1) s.strokes.splice(i, 1); } else s.strokes.push(k); renderModal(); },
+  'e-type'(el){ S.edit.set.type = el.dataset.v; renderModal(); },
+  'e-time'(el){ const s = S.edit.set, f = el.dataset.field, min = f === 'interval' ? 5 : 0;
+    if(el.dataset.set != null) s[f] = +el.dataset.set; else s[f] = Math.max(min, s[f] + (+el.dataset.d));
+    renderModal(); },
+  'e-cancel'(){ S.edit = null; renderModal(); },
+  'e-save'(){
+    const e = S.edit, s = e.set;
+    s.reps = Math.max(1, Math.min(99, Math.round(s.reps) || 1));
+    s.dist = Math.max(1, Math.round(s.dist) || 50);
+    s.interval = Math.max(5, Math.round(s.interval) || 60);
+    s.rest = Math.max(0, Math.round(s.rest) || 0);
+    if(e.idx == null) S.draft.sets.push(s); else S.draft.sets[e.idx] = s;
+    S.edit = null; saveDraft(); render();
+  },
+
+  // dialog
+  'dlg-ok'(){ const f = S.dlg.fn; S.dlg = null; renderDialog(); f && f(); },
+  'dlg-cancel'(){ S.dlg = null; renderDialog(); },
+
+  // clock
+  tap(){ tapFinish(); },
+  endask(){ ask('End the workout now and see your stats? Only reps you finished are counted.', 'End workout', () => { if(S.run) endRun((Date.now() - S.run.startMs)/1000); }, true); }
+};
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]'); if(!el) return;
+  const f = acts[el.dataset.act]; if(f) f(el, e);
+});
+
+// text / number inputs (update state silently; no re-render so focus is never lost)
+document.addEventListener('input', e => {
+  const t = e.target;
+  if(t.dataset.bind === 'name'){ S.draft.name = t.value; saveDraft(); }
+  if(t.dataset.ebind && S.edit){
+    const s = S.edit.set, f = t.dataset.ebind;
+    if(f === 'drill') s.drill = t.value;
+    else if(f === 'reps'){ const v = parseInt(t.value, 10); if(v > 0) s.reps = Math.min(99, v); }
+    else if(f === 'dist'){ const v = parseInt(t.value, 10); if(v > 0){ s.dist = v; const h = $('#disthint'); if(h){ h.textContent = distHint(); h.className = 'hint' + (lengthsOf(s.dist, S.draft.pool).whole ? '' : ' warn'); } } }
+    else if(f === 'interval' || f === 'rest'){ const v = parseTime(t.value); if(v != null && v >= (f === 'interval' ? 5 : 0)) s[f] = v; }
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if(t.dataset.bind === 'pool'){
+    const v = t.value.includes('⅓') ? 100/3 : parseFloat(t.value);
+    if(v > 0){ S.draft.pool = v; saveDraft(); render(); }
+  }
+  if(t.dataset.ebind === 'interval' || t.dataset.ebind === 'rest'){ t.value = fmt(S.edit.set[t.dataset.ebind]); }
+});
+
+// ---------- boot ----------
+try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+render();
+resumeRun();
+</script>
+</body>
+</html>
