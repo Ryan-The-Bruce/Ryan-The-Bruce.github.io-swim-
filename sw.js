@@ -1,5 +1,5 @@
 // Caches the app so it opens with no signal at the pool.
-const CACHE = 'swim-tracker-v2';
+const CACHE = 'swim-tracker-v3';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

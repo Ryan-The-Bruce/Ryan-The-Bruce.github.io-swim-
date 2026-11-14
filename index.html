@@ -192,7 +192,7 @@ const BLOCKS = ['Warm-up','Main','Sprint','Cool-down'];
 const BLOCK_COLORS = {'Warm-up':'#f59e0b','Main':'#0284c7','Sprint':'#ef4444','Cool-down':'#14b8a6'};
 const BLOCK_COLORS_DARK = {'Warm-up':'#fbbf24','Main':'#38bdf8','Sprint':'#f87171','Cool-down':'#5eead4'};
 const blockColor = (n, dark) => (dark ? BLOCK_COLORS_DARK : BLOCK_COLORS)[n] || (dark ? '#c4b5fd' : '#7c3aed');
-function normW(w){ w.sets.forEach(s => { if(!s.block) s.block = 'Main'; }); return w; }
+function normW(w){ w.sets.forEach(s => { if(!s.block) s.block = 'Main'; if(s.mode !== 'rest') s.mode = 'sendoff'; if(s.repRest == null) s.repRest = 20; }); return w; }
 function runsOf(w){ // consecutive sets that share a block name
   const runs = [];
   w.sets.forEach((s, i) => { const b = s.block || 'Main', l = runs[runs.length-1];
@@ -239,14 +239,22 @@ function typeText(s){ return s.type === 'Swim' ? '' : s.type + (s.type === 'Dril
 function newWorkout(){ return {id: uid(), name: '', unit: 'yd', pool: 25, sets: []}; }
 function newSet(from, block){
   const s = from ? Object.assign(clone(from), {id: uid()})
-                 : {id: uid(), reps: 4, dist: 100, strokes: ['Free'], type: 'Swim', drill: '', interval: 90, rest: 0, block: 'Main'};
+                 : {id: uid(), reps: 4, dist: 100, strokes: ['Free'], type: 'Swim', drill: '', interval: 90, rest: 0, block: 'Main', mode: 'sendoff', repRest: 20};
   if(block) s.block = block;
   return s;
 }
+const EST_SEC_PER_UNIT = 0.9; // rough swim speed (1:30 /100) used only to estimate rest-mode sets in the builder
+function setTime(s, lastSet){
+  const tail = lastSet ? 0 : s.rest;
+  return s.mode === 'rest'
+    ? s.reps * s.dist * EST_SEC_PER_UNIT + (s.reps - 1) * s.repRest + tail
+    : s.reps * s.interval + tail;
+}
+function timingText(s){ return s.mode === 'rest' ? `on ${fmt(s.repRest)} rest · tap to finish` : `@ ${fmt(s.interval)}`; }
 function workoutStats(w){
   const dist = sum(w.sets.map(s => s.reps * s.dist));
   let t = 0;
-  w.sets.forEach((s,i) => { t += s.reps * s.interval; if(i < w.sets.length-1) t += s.rest; });
+  w.sets.forEach((s, i) => { t += setTime(s, i === w.sets.length-1); });
   return {dist, time: t, lengths: dist / w.pool};
 }
 
@@ -262,24 +270,29 @@ const saveDraft = () => store.set('draft', S.draft);
 
 // ---------- plan / engine ----------
 function buildPlan(w){
-  const segs = [{type:'lead', start:0, dur:LEAD}];
+  // A flat list of steps. Fixed-length steps (lead, send-off reps, rests) advance on their own;
+  // a "rest"-mode rep has no length: it ends when you tap, which starts the following rest step.
+  const steps = [{type:'lead', dur:LEAD}];
   const info = [];
   runsOf(w).forEach(run => { for(let k = run.start; k <= run.end; k++) info[k] = {bi: k - run.start + 1, bn: run.end - run.start + 1}; });
-  let t = LEAD;
   w.sets.forEach((s, si) => {
+    const mode = s.mode === 'rest' ? 'rest' : 'sendoff';
+    const blk = s.block || 'Main', lastSet = si === w.sets.length-1;
     for(let ri = 0; ri < s.reps; ri++){
-      segs.push({type:'rep', si, ri, key: si+'-'+ri, start:t, dur:s.interval,
+      const last = ri === s.reps-1;
+      const restDur = mode === 'rest' ? (last ? (lastSet ? 0 : s.rest) : (s.repRest || 0)) : 0;
+      steps.push({type:'rep', si, ri, key: si+'-'+ri, mode, dur: mode === 'sendoff' ? s.interval : null,
         stroke: s.strokes[ri % s.strokes.length], dist:s.dist, typ:s.type, drill:s.drill,
-        block: s.block || 'Main', bi: info[si].bi, bn: info[si].bn,
-        lastOfSet: ri === s.reps-1});
-      t += s.interval;
-    }
-    if(s.rest > 0 && si < w.sets.length-1){
-      segs.push({type:'rest', si, start:t, dur:s.rest});
-      t += s.rest;
+        block: blk, bi: info[si].bi, bn: info[si].bn, restDur,
+        lastOfSet: last, lastOfAll: last && lastSet});
+      if(mode === 'rest'){
+        if(restDur > 0) steps.push({type:'rest', si, ri, dur:restDur, block:blk, afterSet:last});
+      } else if(last && s.rest > 0 && !lastSet){
+        steps.push({type:'rest', si, ri, dur:s.rest, block:blk, afterSet:true});
+      }
     }
   });
-  return {segs, total:t};
+  return steps;
 }
 function repLine(seg){ return `${seg.dist} ${seg.stroke}`; }
 function repSub(seg){ return seg.typ === 'Swim' ? '' : seg.typ + (seg.typ === 'Drill' && seg.drill ? ' · ' + seg.drill : ''); }
@@ -293,16 +306,16 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 
 function persistRun(){
   const r = S.run;
-  if(r) store.set('run', {w:r.w, startMs:r.startMs, taps:r.taps});
+  if(r) store.set('run', {w:r.w, startMs:r.startMs, idx:r.idx, stepStart:r.stepStart, taps:r.taps});
 }
 function startWorkout(){
   const w = S.draft;
   if(!w.sets.length){ toast('Add a set first'); return; }
-  launchRun(clone(w), Date.now(), {});
+  const now = Date.now();
+  launchRun(clone(w), now, {}, 0, now);
 }
-function launchRun(w, startMs, taps){
-  const {segs, total} = buildPlan(w);
-  S.run = {w, segs, total, startMs, taps, idx:-1, timer:null, ended:false};
+function launchRun(w, startMs, taps, idx, stepStart){
+  S.run = {w, steps: buildPlan(w), startMs, taps, idx, stepStart, shown:-1, timer:null, ended:false};
   persistRun();
   S.screen = 'clock'; S.edit = null;
   render();
@@ -312,45 +325,51 @@ function launchRun(w, startMs, taps){
 }
 function tick(){
   const r = S.run; if(!r || r.ended) return;
-  const el = (Date.now() - r.startMs) / 1000;
-  if(el >= r.total){ endRun(r.total); return; }
-  let i = Math.max(0, r.idx);
-  while(i < r.segs.length-1 && el >= r.segs[i].start + r.segs[i].dur) i++;
-  if(i !== r.idx){
-    const first = r.idx === -1;
-    r.idx = i;
-    render();
-    if(!first || r.segs[i].type !== 'lead') flash(r.segs[i].type === 'rest' ? '#3b82f6' : '#22c55e');
+  const now = Date.now();
+  let moved = false;
+  for(;;){
+    const st = r.steps[r.idx];
+    const open = st.type === 'rep' && st.mode === 'rest'; // waits for your tap
+    if(open || now < r.stepStart + st.dur * 1000) break;
+    r.stepStart += st.dur * 1000; r.idx++; moved = true;     // exact hand-off, so timing never drifts
+    if(r.idx >= r.steps.length){ endRun(r.stepStart); return; }
   }
-  updateClock(el);
+  if(moved) persistRun();
+  if(r.idx !== r.shown){
+    const first = r.shown === -1;
+    r.shown = r.idx;
+    render();
+    const st = r.steps[r.idx];
+    if(!first || st.type !== 'lead') flash(st.type === 'rest' ? '#3b82f6' : '#22c55e');
+  }
+  updateClock(now);
 }
 function tapFinish(){
   const r = S.run; if(!r || r.ended) return;
-  const seg = r.segs[r.idx]; if(!seg || seg.type !== 'rep') return;
-  const el = (Date.now() - r.startMs) / 1000;
-  r.taps[seg.key] = Math.round((el - seg.start) * 10) / 10;
-  persistRun();
-  if(r.idx === r.segs.length-1){ endRun(el); return; } // finished the very last rep
-  updateClock(el);
+  const st = r.steps[r.idx]; if(!st || st.type !== 'rep') return;
+  const now = Date.now();
+  r.taps[st.key] = Math.round((now - r.stepStart) / 100) / 10;
+  if(st.lastOfAll){ endRun(now); return; }  // finished the very last rep
+  if(st.mode === 'rest'){ r.idx++; r.stepStart = now; persistRun(); tick(); return; } // tap starts the rest
+  persistRun(); updateClock(now);
 }
-function computeRecord(r, el){
+function computeRecord(r, endMs){
   const reps = [];
-  r.segs.forEach(seg => {
-    if(seg.type !== 'rep') return;
-    const tap = r.taps[seg.key];
-    const done = tap != null || el >= seg.start + seg.dur - 0.01;
-    if(done) reps.push({si:seg.si, ri:seg.ri, block:seg.block, stroke:seg.stroke, dist:seg.dist, typ:seg.typ, drill:seg.drill, tap: tap != null ? tap : null});
+  r.steps.forEach((st, j) => {
+    if(st.type !== 'rep') return;
+    const tap = r.taps[st.key];
+    if(tap != null || j < r.idx) reps.push({si:st.si, ri:st.ri, block:st.block, stroke:st.stroke, dist:st.dist, typ:st.typ, drill:st.drill, tap: tap != null ? tap : null});
   });
   return {
     id: uid(), date: r.startMs, name: r.w.name || 'Swim workout', unit: r.w.unit, pool: r.w.pool,
-    totalTime: Math.max(0, Math.min(el, r.total) - LEAD), reps, sets: r.w.sets
+    totalTime: Math.max(0, (endMs - r.startMs) / 1000 - LEAD), reps, sets: r.w.sets
   };
 }
-function endRun(el){
+function endRun(endMs){
   const r = S.run; if(!r || r.ended) return;
   r.ended = true; clearInterval(r.timer);
   releaseWake(); store.del('run');
-  const rec = computeRecord(r, el);
+  const rec = computeRecord(r, endMs);
   if(rec.reps.length){
     S.history.unshift(rec); store.set('history', S.history);
   }
@@ -363,13 +382,8 @@ function endRun(el){
 function resumeRun(){
   const saved = store.get('run', null);
   if(!saved) return;
-  const {segs, total} = buildPlan(saved.w);
-  const el = (Date.now() - saved.startMs) / 1000;
-  if(el > total + 1800){ store.del('run'); return; }
-  S.run = {w:saved.w, segs, total, startMs:saved.startMs, taps:saved.taps||{}, idx:-1, timer:null, ended:false};
-  if(el >= total){ endRun(total); return; }
-  S.screen = 'clock'; render(); wakeLock();
-  S.run.timer = setInterval(tick, 100); tick();
+  if(saved.idx == null || Date.now() - saved.startMs > 4 * 3600 * 1000){ store.del('run'); return; }
+  launchRun(normW(saved.w), saved.startMs, saved.taps || {}, saved.idx, saved.stepStart);
 }
 
 // ---------- stats ----------
@@ -479,7 +493,7 @@ function builderHTML(){
       <div class="grow">
         <div class="main num">${esc(setText(s))}</div>
         <div class="sub">${s.type !== 'Swim' ? `<span class="tag">${esc(typeText(s))}</span>` : ''}
-          @ ${fmt(s.interval)}${s.rest > 0 && i < w.sets.length-1 ? ` · ${fmt(s.rest)} rest after` : ''}
+          ${esc(timingText(s))}${s.rest > 0 && i < w.sets.length-1 ? ` · ${fmt(s.rest)} rest after` : ''}
           ${s.strokes.length > 1 ? ' · alternating strokes' : ''}
           ${!lw.whole ? ` · <span style="color:#b45309">not whole lengths</span>` : ''}</div>
       </div>
@@ -495,7 +509,7 @@ function builderHTML(){
   const groups = runs.map((run, ri) => {
     const ss = w.sets.slice(run.start, run.end + 1);
     const dist = sum(ss.map(s => s.reps * s.dist));
-    let tm = 0; ss.forEach((s, k) => { tm += s.reps * s.interval; if(run.start + k < w.sets.length-1) tm += s.rest; });
+    let tm = 0; ss.forEach((s, k) => { tm += setTime(s, run.start + k === w.sets.length-1); });
     const c = blockColor(run.name);
     return `<div class="bhead" style="--bc:${c}">
         <button class="bname" data-act="rename" data-r="${ri}">${esc(run.name)} <span class="muted" style="font-size:15px;font-weight:600">✎ rename</span></button>
@@ -584,13 +598,22 @@ function editorHTML(){
       <div class="chips">${TYPES.map(k => `<button class="chip ${s.type===k?'on':''}" data-act="e-type" data-v="${k}">${k}</button>`).join('')}</div>
       ${s.type === 'Drill' ? `<div class="lbl">Drill name</div><input class="txt" data-ebind="drill" placeholder="e.g. Catch-up, Fingertip drag" value="${esc(s.drill)}">` : ''}
 
-      <div class="lbl">Send-off interval</div>
-      ${timeCtl('interval', s.interval, 5, [30,45,60,75,90,120])}
-      <div class="hint">A new rep starts on the clock every interval. Rest is whatever is left after you swim.</div>
+      <div class="lbl">Timing</div>
+      <div class="seg" style="margin-top:8px">
+        <button class="${s.mode!=='rest'?'on':''}" data-act="e-mode" data-v="sendoff">On the clock</button>
+        <button class="${s.mode==='rest'?'on':''}" data-act="e-mode" data-v="rest">On rest</button></div>
+      ${s.mode === 'rest' ? `
+        <div class="lbl">Rest after each rep</div>
+        ${timeCtl('repRest', s.repRest, 5, [10,15,20,30,45,60])}
+        <div class="hint">The clock counts up while you swim. Tap FINISH at the wall to start the rest; the next rep starts automatically when it ends.</div>`
+      : `
+        <div class="lbl">Send-off interval</div>
+        ${timeCtl('interval', s.interval, 5, [30,45,60,75,90,120])}
+        <div class="hint">A new rep starts on the clock every interval. Rest is whatever is left after you swim.</div>`}
 
       <div class="lbl">Rest after this set</div>
       ${timeCtl('rest', s.rest, 5, [0,15,30,45,60,120])}
-      <div class="hint">Extra break before the next set starts (not used after the last set).</div>
+      <div class="hint">${s.mode === 'rest' ? 'Used instead of the per-rep rest after the last rep of the set.' : 'Extra break before the next set starts'} (not used after the last set).</div>
     </div>
     <div class="sheet-f">
       <button class="btn" data-act="e-cancel">Cancel</button>
@@ -624,7 +647,7 @@ function ask(text, ok, fn, danger){ S.dlg = {text, ok, fn, danger}; renderDialog
 // ----- clock -----
 function clockHTML(){
   const r = S.run; if(!r) return '';
-  const seg = r.segs[r.idx < 0 ? 0 : r.idx];
+  const seg = r.steps[r.idx];
   return `<div class="clock ph-${seg.type}" id="clockroot">
     <div class="cbar"><div id="cbarfill"></div></div>
     <div class="ctop"><span>${esc(r.w.name || 'Swim workout')}</span><button class="btn" data-act="endask">End workout</button></div>
@@ -654,71 +677,66 @@ function clockHTML(){
   </div>`;
 }
 function describeNext(r){
-  const nx = r.segs[r.idx+1]; if(!nx) return 'Last one — finish strong';
+  const nx = r.steps[r.idx+1]; if(!nx) return 'Last one — finish strong';
   if(nx.type === 'rest') return `Next: <b>${fmt(nx.dur)} rest</b>`;
-  if(nx.type === 'rep'){
-    const cur = r.segs[r.idx];
-    const curBlock = cur.type === 'rep' ? cur.block : (r.w.sets[cur.si] || {}).block;
-    const newSet = cur.type !== 'rep' || nx.si !== cur.si;
-    const sub = repSub(nx);
-    if(newSet){
-      const s = r.w.sets[nx.si];
-      const lead = nx.block !== curBlock ? `Next block: <b>${esc(nx.block)}</b> — ` : 'Next set: ';
-      return `${lead}<b>${esc(setText(s))}</b> @ ${fmt(s.interval)}${sub ? ' · ' + esc(sub) : ''}`;
-    }
-    return `Next: <b>${esc(repLine(nx))}</b>${sub ? ' · ' + esc(sub) : ''}`;
+  const cur = r.steps[r.idx];
+  const sub = repSub(nx);
+  if(cur.si == null || nx.si !== cur.si){
+    const s = r.w.sets[nx.si];
+    const lead = nx.block !== cur.block ? `Next block: <b>${esc(nx.block)}</b> — ` : 'Next set: ';
+    return `${lead}<b>${esc(setText(s))}</b> ${esc(timingText(s))}${sub ? ' · ' + esc(sub) : ''}`;
   }
-  return '';
+  return `Next: <b>${esc(repLine(nx))}</b>${sub ? ' · ' + esc(sub) : ''}`;
 }
-function updateClock(el){
+function updateClock(now){
   const r = S.run; if(!r) return;
-  const seg = r.segs[r.idx < 0 ? 0 : r.idx]; if(!seg) return;
-  const left = Math.max(0, seg.start + seg.dur - el);
+  const st = r.steps[r.idx]; if(!st) return;
   const root = $('#clockroot'); if(!root) return;
-  const big = Math.ceil(left - 0.0001);
-  $('#big').textContent = fmt(big);
-  root.classList.toggle('warn', seg.type === 'rep' && big <= 5 && big > 0 || (seg.type==='lead'));
-  $('#cbarfill').style.width = Math.min(100, (el - seg.start) / seg.dur * 100) + '%';
-  const isLastRep = r.idx === r.segs.length-1;
+  const es = (now - r.stepStart) / 1000;
+  const open = st.type === 'rep' && st.mode === 'rest';
   const nSets = r.w.sets.length;
-  const bset = r.w.sets[seg.type === 'lead' ? 0 : Math.min(seg.si, nSets-1)];
+  const bset = r.w.sets[st.type === 'lead' ? 0 : Math.min(st.si, nSets-1)];
   const blk = (bset && bset.block) || 'Main';
+  const left = open ? 0 : Math.max(0, st.dur - es);
+  const bigN = Math.ceil(left - 0.0001);
+  $('#big').textContent = open ? fmt(Math.floor(es)) : fmt(bigN);
+  root.classList.toggle('warn', st.type === 'lead' || (st.type === 'rep' && !open && bigN <= 5 && bigN > 0));
+  $('#cbarfill').style.width = (open ? 0 : Math.min(100, es / st.dur * 100)) + '%';
   let phase = '', ik = '', im = '', isb = '', iln = '', sw = '';
-  if(seg.type === 'lead'){
+  if(st.type === 'lead'){
     phase = 'GET READY';
     const s0 = r.w.sets[0];
     ik = blk.toUpperCase() + ' · FIRST SET'; im = setText(s0); isb = typeText(s0);
-  } else if(seg.type === 'rest'){
+  } else if(st.type === 'rest'){
     phase = 'REST';
-    const nxs = r.w.sets[seg.si + 1];
-    ik = `REST AFTER SET ${seg.si+1}`; im = 'Breathe'; iln = `Up next: ${setText(nxs)}`;
+    ik = st.afterSet ? `REST AFTER SET ${st.si+1}` : `REST AFTER REP ${st.ri+1}`; im = 'Breathe';
   } else {
-    phase = isLastRep ? 'WORKOUT ENDS IN' : (seg.lastOfSet ? 'SET ENDS IN' : 'SEND-OFF IN');
-    const s = r.w.sets[seg.si];
-    ik = `${seg.block.toUpperCase()} · SET ${seg.bi} OF ${seg.bn} · REP ${seg.ri+1} OF ${s.reps}`;
-    im = repLine(seg); isb = repSub(seg);
-    const lw = lengthsOf(seg.dist, r.w.pool);
+    const s = r.w.sets[st.si];
+    phase = open ? 'SWIMMING' : (st.lastOfAll ? 'WORKOUT ENDS IN' : (st.lastOfSet ? 'SET ENDS IN' : 'SEND-OFF IN'));
+    ik = `${st.block.toUpperCase()} · SET ${st.bi} OF ${st.bn} · REP ${st.ri+1} OF ${s.reps}`;
+    im = repLine(st); isb = repSub(st);
+    const lw = lengthsOf(st.dist, r.w.pool);
     iln = lw.whole ? `${Math.round(lw.l)} length${Math.round(lw.l)===1?'':'s'} of ${poolLabel(r.w.pool)} ${r.w.unit}` : '';
-    sw = `On this rep: ${fmt(Math.floor(el - seg.start))}`;
+    sw = open ? (st.restDur > 0 ? `Then ${fmt(st.restDur)} rest` : '') : `On this rep: ${fmt(Math.floor(es))}`;
   }
   $('#phase').textContent = phase;
   $('#swimmed').textContent = sw;
-  $('#ik').textContent = ik; $('#ik').style.color = blockColor(blk, true); $('#im').textContent = im; $('#isb').textContent = isb; $('#iln').textContent = iln;
+  $('#ik').textContent = ik; $('#ik').style.color = blockColor(blk, true); $('#im').textContent = im;
+  $('#isb').textContent = isb; $('#iln').textContent = iln;
   $('#nxt').innerHTML = describeNext(r);
   const fin = $('#fin');
-  if(seg.type === 'rep'){
-    const t = r.taps[seg.key];
+  if(st.type === 'rep'){
+    const t = r.taps[st.key];
     if(t != null){ fin.className = 'fin done'; fin.innerHTML = `✓ Logged ${fmtT(t)}<br><span style="font-size:.6em;font-weight:600">tap again to update</span>`; }
-    else { fin.className = 'fin'; fin.textContent = isLastRep ? 'FINISH WORKOUT' : 'FINISH REP'; }
-  } else { fin.className = 'fin off'; fin.textContent = seg.type === 'rest' ? 'Resting…' : 'Get ready…'; }
-  // distance stats
+    else { fin.className = 'fin'; fin.textContent = st.lastOfAll ? 'FINISH WORKOUT' : 'FINISH REP'; }
+  } else { fin.className = 'fin off'; fin.textContent = st.type === 'rest' ? 'Resting…' : 'Get ready…'; }
   let done = 0, total = 0;
-  r.segs.forEach(sg => { if(sg.type !== 'rep') return; total += sg.dist;
-    if(r.taps[sg.key] != null || el >= sg.start + sg.dur) done += sg.dist; });
-  $('#s-el').textContent = fmt(Math.max(0, el - LEAD));
+  r.steps.forEach((sg, j) => { if(sg.type !== 'rep') return; total += sg.dist;
+    if(r.taps[sg.key] != null || j < r.idx) done += sg.dist; });
+  $('#s-el').textContent = fmt(Math.max(0, (now - r.startMs) / 1000 - LEAD));
   $('#s-done').textContent = fmtDist(done);
   $('#s-left').textContent = fmtDist(total - done);
-  $('#s-set').textContent = (seg.type === 'lead' ? 1 : Math.min(seg.si + 1, nSets)) + '/' + nSets;
+  $('#s-set').textContent = (st.type === 'lead' ? 1 : Math.min(st.si + 1, nSets)) + '/' + nSets;
 }
 function flash(color){
   const f = $('#flash'); f.style.background = color;
@@ -859,8 +877,9 @@ const acts = {
   'e-stroke'(el){ const s = S.edit.set, k = el.dataset.v, i = s.strokes.indexOf(k);
     if(i >= 0){ if(s.strokes.length > 1) s.strokes.splice(i, 1); } else s.strokes.push(k); renderModal(); },
   'e-block'(el){ S.edit.set.block = el.dataset.v; renderModal(); },
+  'e-mode'(el){ S.edit.set.mode = el.dataset.v; renderModal(); },
   'e-type'(el){ S.edit.set.type = el.dataset.v; renderModal(); },
-  'e-time'(el){ const s = S.edit.set, f = el.dataset.field, min = f === 'interval' ? 5 : 0;
+  'e-time'(el){ const s = S.edit.set, f = el.dataset.field, min = (f === 'interval' || f === 'repRest') ? 5 : 0;
     if(el.dataset.set != null) s[f] = +el.dataset.set; else s[f] = Math.max(min, s[f] + (+el.dataset.d));
     renderModal(); },
   'e-cancel'(){ S.edit = null; renderModal(); },
@@ -870,6 +889,8 @@ const acts = {
     s.dist = Math.max(1, Math.round(s.dist) || 50);
     s.interval = Math.max(5, Math.round(s.interval) || 60);
     s.rest = Math.max(0, Math.round(s.rest) || 0);
+    s.repRest = Math.max(5, Math.round(s.repRest) || 20);
+    if(s.mode !== 'rest') s.mode = 'sendoff';
     s.block = (s.block || 'Main').trim().slice(0, 24) || 'Main';
     const moved = s.block !== e.block0, a = S.draft.sets;
     if(e.idx == null){ if(moved || e.at == null) placeInBlock(a, s, s.block); else a.splice(e.at, 0, s); }
@@ -884,7 +905,7 @@ const acts = {
 
   // clock
   tap(){ tapFinish(); },
-  endask(){ ask('End the workout now and see your stats? Only reps you finished are counted.', 'End workout', () => { if(S.run) endRun((Date.now() - S.run.startMs)/1000); }, true); }
+  endask(){ ask('End the workout now and see your stats? Only reps you finished are counted.', 'End workout', () => { if(S.run) endRun(Date.now()); }, true); }
 };
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if(!el) return;
@@ -901,7 +922,7 @@ document.addEventListener('input', e => {
     else if(f === 'reps'){ const v = parseInt(t.value, 10); if(v > 0) s.reps = Math.min(99, v); }
     else if(f === 'dist'){ const v = parseInt(t.value, 10); if(v > 0){ s.dist = v; const h = $('#disthint'); if(h){ h.textContent = distHint(); h.className = 'hint' + (lengthsOf(s.dist, S.draft.pool).whole ? '' : ' warn'); } } }
     else if(f === 'block'){ const v = t.value.trim().slice(0, 24); if(v){ s.block = v; document.querySelectorAll('[data-act=e-block]').forEach(c => c.classList.remove('on')); } }
-    else if(f === 'interval' || f === 'rest'){ const v = parseTime(t.value); if(v != null && v >= (f === 'interval' ? 5 : 0)) s[f] = v; }
+    else if(f === 'interval' || f === 'rest' || f === 'repRest'){ const v = parseTime(t.value); if(v != null && v >= ((f === 'interval' || f === 'repRest') ? 5 : 0)) s[f] = v; }
   }
 });
 document.addEventListener('change', e => {
@@ -910,7 +931,7 @@ document.addEventListener('change', e => {
     const v = t.value.includes('⅓') ? 100/3 : parseFloat(t.value);
     if(v > 0){ S.draft.pool = v; saveDraft(); render(); }
   }
-  if(t.dataset.ebind === 'interval' || t.dataset.ebind === 'rest'){ t.value = fmt(S.edit.set[t.dataset.ebind]); }
+  if(['interval','rest','repRest'].includes(t.dataset.ebind)){ t.value = fmt(S.edit.set[t.dataset.ebind]); }
 });
 
 // ---------- boot ----------
