@@ -71,6 +71,12 @@ input.txt:focus{outline:2px solid var(--accent);border-color:transparent}
 .acts{display:flex;gap:6px}
 .acts .sq{min-width:44px;min-height:44px;font-size:15px}
 
+/* ---------- blocks ---------- */
+.bhead{display:flex;align-items:center;gap:10px;margin:22px 0 8px;padding-left:12px;border-left:7px solid var(--bc)}
+.bname{font-size:22px;font-weight:800;letter-spacing:-.3px;min-height:44px;padding:0 6px 0 0}
+.bhead .sq{min-width:44px;min-height:44px}
+td.bsub{font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border-left:5px solid var(--bc);padding:8px 8px 4px;color:var(--ink);border-bottom:0}
+
 /* ---------- modal ---------- */
 .scrim{position:fixed;inset:0;background:#0f172a99;display:flex;align-items:center;justify-content:center;z-index:40;padding:16px}
 .sheet{background:var(--bg);border-radius:22px;width:min(760px,100%);max-height:calc(100vh - 32px);display:flex;flex-direction:column;overflow:hidden}
@@ -182,6 +188,21 @@ const sum = a => a.reduce((x,y) => x + y, 0);
 const STROKES = ['Free','Back','Breast','Fly','IM','Choice'];
 const TYPES = ['Swim','Drill','Kick','Pull','Fast'];
 const LEAD = 5; // seconds of "get ready" before the first rep
+const BLOCKS = ['Warm-up','Main','Sprint','Cool-down'];
+const BLOCK_COLORS = {'Warm-up':'#f59e0b','Main':'#0284c7','Sprint':'#ef4444','Cool-down':'#14b8a6'};
+const BLOCK_COLORS_DARK = {'Warm-up':'#fbbf24','Main':'#38bdf8','Sprint':'#f87171','Cool-down':'#5eead4'};
+const blockColor = (n, dark) => (dark ? BLOCK_COLORS_DARK : BLOCK_COLORS)[n] || (dark ? '#c4b5fd' : '#7c3aed');
+function normW(w){ w.sets.forEach(s => { if(!s.block) s.block = 'Main'; }); return w; }
+function runsOf(w){ // consecutive sets that share a block name
+  const runs = [];
+  w.sets.forEach((s, i) => { const b = s.block || 'Main', l = runs[runs.length-1];
+    if(l && l.name === b) l.end = i; else runs.push({name:b, start:i, end:i}); });
+  return runs;
+}
+function placeInBlock(arr, s, block){ // put set after the last set of that block, else at the end
+  let idx = -1; arr.forEach((x, i) => { if((x.block || 'Main') === block) idx = i; });
+  if(idx < 0) arr.push(s); else arr.splice(idx+1, 0, s);
+}
 
 function fmt(sec){
   sec = Math.max(0, Math.round(sec));
@@ -216,9 +237,11 @@ function strokeText(s){ return s.strokes.join(' / '); }
 function setText(s){ return `${s.reps} × ${s.dist} ${strokeText(s)}`; }
 function typeText(s){ return s.type === 'Swim' ? '' : s.type + (s.type === 'Drill' && s.drill ? ' · ' + s.drill : ''); }
 function newWorkout(){ return {id: uid(), name: '', unit: 'yd', pool: 25, sets: []}; }
-function newSet(from){
-  return from ? Object.assign(clone(from), {id: uid()})
-              : {id: uid(), reps: 4, dist: 100, strokes: ['Free'], type: 'Swim', drill: '', interval: 90, rest: 0};
+function newSet(from, block){
+  const s = from ? Object.assign(clone(from), {id: uid()})
+                 : {id: uid(), reps: 4, dist: 100, strokes: ['Free'], type: 'Swim', drill: '', interval: 90, rest: 0, block: 'Main'};
+  if(block) s.block = block;
+  return s;
 }
 function workoutStats(w){
   const dist = sum(w.sets.map(s => s.reps * s.dist));
@@ -230,9 +253,9 @@ function workoutStats(w){
 // ---------- state ----------
 const S = {
   screen: 'home', tab: 'templates',
-  templates: store.get('templates', []),
+  templates: store.get('templates', []).map(normW),
   history: store.get('history', []),
-  draft: store.get('draft', null) || newWorkout(),
+  draft: normW(store.get('draft', null) || newWorkout()),
   edit: null, dlg: null, run: null, summary: null
 };
 const saveDraft = () => store.set('draft', S.draft);
@@ -240,11 +263,14 @@ const saveDraft = () => store.set('draft', S.draft);
 // ---------- plan / engine ----------
 function buildPlan(w){
   const segs = [{type:'lead', start:0, dur:LEAD}];
+  const info = [];
+  runsOf(w).forEach(run => { for(let k = run.start; k <= run.end; k++) info[k] = {bi: k - run.start + 1, bn: run.end - run.start + 1}; });
   let t = LEAD;
   w.sets.forEach((s, si) => {
     for(let ri = 0; ri < s.reps; ri++){
       segs.push({type:'rep', si, ri, key: si+'-'+ri, start:t, dur:s.interval,
         stroke: s.strokes[ri % s.strokes.length], dist:s.dist, typ:s.type, drill:s.drill,
+        block: s.block || 'Main', bi: info[si].bi, bn: info[si].bn,
         lastOfSet: ri === s.reps-1});
       t += s.interval;
     }
@@ -253,7 +279,7 @@ function buildPlan(w){
       t += s.rest;
     }
   });
-  return {segs, total: t};
+  return {segs, total:t};
 }
 function repLine(seg){ return `${seg.dist} ${seg.stroke}`; }
 function repSub(seg){ return seg.typ === 'Swim' ? '' : seg.typ + (seg.typ === 'Drill' && seg.drill ? ' · ' + seg.drill : ''); }
@@ -313,7 +339,7 @@ function computeRecord(r, el){
     if(seg.type !== 'rep') return;
     const tap = r.taps[seg.key];
     const done = tap != null || el >= seg.start + seg.dur - 0.01;
-    if(done) reps.push({si:seg.si, ri:seg.ri, stroke:seg.stroke, dist:seg.dist, typ:seg.typ, drill:seg.drill, tap: tap != null ? tap : null});
+    if(done) reps.push({si:seg.si, ri:seg.ri, block:seg.block, stroke:seg.stroke, dist:seg.dist, typ:seg.typ, drill:seg.drill, tap: tap != null ? tap : null});
   });
   return {
     id: uid(), date: r.startMs, name: r.w.name || 'Swim workout', unit: r.w.unit, pool: r.w.pool,
@@ -381,7 +407,7 @@ function stats(rec){
     dist, lengths: dist / rec.pool, pace, swim, est,
     rest: swim != null ? Math.max(0, rec.totalTime - swim) : null,
     timedCount: timed.length, repCount: reps.length,
-    byStroke: group(r => r.stroke, STROKES), byType: group(r => r.typ, TYPES), bySet
+    byBlock: group(r => r.block || 'Main'), byStroke: group(r => r.stroke, STROKES), byType: group(r => r.typ, TYPES), bySet
   };
 }
 
@@ -446,7 +472,7 @@ function poolChips(w){
 }
 function builderHTML(){
   const w = S.draft, st = workoutStats(w);
-  const cards = w.sets.map((s, i) => {
+  const setCard = (s, i) => {
     const lw = lengthsOf(s.dist, w.pool);
     return `<div class="setcard">
       <div class="n">${i+1}</div>
@@ -464,6 +490,23 @@ function builderHTML(){
         <button class="btn" style="min-height:44px" data-act="copyset" data-i="${i}">Copy</button>
         <button class="sq danger" data-act="delset" data-i="${i}" style="color:var(--danger)">✕</button>
       </div></div>`;
+  };
+  const runs = runsOf(w);
+  const groups = runs.map((run, ri) => {
+    const ss = w.sets.slice(run.start, run.end + 1);
+    const dist = sum(ss.map(s => s.reps * s.dist));
+    let tm = 0; ss.forEach((s, k) => { tm += s.reps * s.interval; if(run.start + k < w.sets.length-1) tm += s.rest; });
+    const c = blockColor(run.name);
+    return `<div class="bhead" style="--bc:${c}">
+        <button class="bname" data-act="rename" data-r="${ri}">${esc(run.name)} <span class="muted" style="font-size:15px;font-weight:600">✎ rename</span></button>
+        <span class="muted num">${fmtDist(dist)} ${w.unit} · ${fmt(tm)}</span><span class="grow"></span>
+        <button class="sq" data-act="runup" data-r="${ri}" ${ri===0?'disabled style="opacity:.35"':''}>▲</button>
+        <button class="sq" data-act="rundown" data-r="${ri}" ${ri===runs.length-1?'disabled style="opacity:.35"':''}>▼</button>
+        <button class="sq" data-act="rundel" data-r="${ri}" style="color:var(--danger)">✕</button>
+      </div>
+      <div class="list">${ss.map((s, k) => setCard(s, run.start + k)).join('')}
+        <button class="btn" data-act="addset" data-r="${ri}" style="border-style:dashed;border-color:${c};color:var(--ink)">+ Add set to ${esc(run.name)}</button>
+      </div>`;
   }).join('');
   return `<div class="page">
     <div class="top">
@@ -479,15 +522,14 @@ function builderHTML(){
         <div class="grow"><div class="lbl">Pool length (${w.unit})</div>${poolChips(w)}</div>
       </div>
     </div>
-    <div class="lbl">Sets</div>
-    <div class="list" style="margin-top:8px">
-      ${cards || `<div class="empty card">No sets yet — tap “Add set” to start writing your workout.</div>`}
-      <button class="btn big" data-act="addset" style="border-style:dashed;border-color:var(--accent);color:var(--accent)">+ Add set</button>
+    ${groups || `<div class="empty card" style="margin-top:16px">Nothing here yet. Add a block (Warm-up, Main, Sprint, Cool-down, or your own) and put sets in it.</div>`}
+    <div class="list" style="margin-top:18px">
+      <button class="btn big" data-act="addblock" style="border-style:dashed;border-color:var(--accent);color:var(--accent)">+ Add block</button>
     </div>
   </div>
   <div class="foot"><div class="in">
     <div class="grow num"><b style="font-size:19px">${fmtDist(st.dist)} ${w.unit}</b>
-      <span class="muted"> · ${w.sets.length} sets · ${st.lengths % 1 ? st.lengths.toFixed(1) : st.lengths} lengths · ~${fmt(st.time)}</span></div>
+      <span class="muted"> · ${runs.length} block${runs.length===1?'':'s'} · ${w.sets.length} sets · ${st.lengths % 1 ? st.lengths.toFixed(1) : st.lengths} lengths · ~${fmt(st.time)}</span></div>
     <button class="btn" data-act="savetpl">Save template</button>
     <button class="btn primary big" data-act="start" ${w.sets.length?'':'style="opacity:.5"'}>▶ Start</button>
   </div></div>`;
@@ -511,10 +553,17 @@ function distHint(){
 function editorHTML(){
   const e = S.edit, s = e.set, w = S.draft;
   const dists = [25, 50, 75, 100, 150, 200, 300, 400, 500];
+  const blockNames = [...BLOCKS];
+  w.sets.forEach(x => { if(x.block && !blockNames.includes(x.block)) blockNames.push(x.block); });
+  if(s.block && !blockNames.includes(s.block)) blockNames.push(s.block);
   const lw = lengthsOf(s.dist, w.pool);
   return `<div class="scrim"><div class="sheet">
     <div class="sheet-h">${e.idx == null ? 'Add set' : 'Edit set ' + (e.idx+1)}</div>
     <div class="sheet-body">
+      <div class="lbl" style="margin-top:6px">Block</div>
+      <div class="chips">${blockNames.map(b => `<button class="chip ${s.block===b?'on':''}" data-act="e-block" data-v="${esc(b)}">${esc(b)}</button>`).join('')}
+        <input class="nin" style="width:170px" maxlength="24" placeholder="New block name" data-ebind="block" value=""></div>
+
       <div class="lbl">Reps</div>
       <div class="stepper">
         <button class="sq" data-act="e-reps" data-d="-1">−</button>
@@ -555,7 +604,17 @@ function renderModal(){
   m.innerHTML = S.edit ? editorHTML() : '';
   const nb = m.querySelector('.sheet-body'); if(nb) nb.scrollTop = top;
 }
+function blockDlgHTML(){
+  const d = S.dlg, rn = d.mode === 'rename';
+  return `<div class="scrim" style="z-index:80"><div class="dlg">
+    <p style="margin-bottom:10px"><b>${rn ? 'Rename block' : 'Add a block'}</b></p>
+    <div class="chips" style="margin:0 0 16px">${BLOCKS.map(b => `<button class="chip" data-act="blk-pick" data-v="${esc(b)}" style="border-left:7px solid ${blockColor(b)}">${esc(b)}</button>`).join('')}</div>
+    <input class="txt" id="blkname" maxlength="24" placeholder="Or type your own name" value="${esc(d.value || '')}">
+    <div class="row" style="margin-top:18px"><button class="btn" data-act="dlg-cancel">Cancel</button>
+      <button class="btn primary" data-act="blk-ok">${rn ? 'Rename' : 'Add block'}</button></div></div></div>`;
+}
 function renderDialog(){
+  if(S.dlg && S.dlg.type === 'block'){ $('#dialog').innerHTML = blockDlgHTML(); return; }
   $('#dialog').innerHTML = S.dlg ? `<div class="scrim" style="z-index:80"><div class="dlg"><p>${esc(S.dlg.text)}</p>
     <div class="row"><button class="btn" data-act="dlg-cancel">Cancel</button>
     <button class="btn primary ${S.dlg.danger?'':''}" ${S.dlg.danger?'style="background:var(--danger);border-color:var(--danger)"':''} data-act="dlg-ok">${esc(S.dlg.ok)}</button></div></div></div>` : '';
@@ -599,11 +658,13 @@ function describeNext(r){
   if(nx.type === 'rest') return `Next: <b>${fmt(nx.dur)} rest</b>`;
   if(nx.type === 'rep'){
     const cur = r.segs[r.idx];
+    const curBlock = cur.type === 'rep' ? cur.block : (r.w.sets[cur.si] || {}).block;
     const newSet = cur.type !== 'rep' || nx.si !== cur.si;
     const sub = repSub(nx);
     if(newSet){
       const s = r.w.sets[nx.si];
-      return `Next set: <b>${esc(setText(s))}</b> @ ${fmt(s.interval)}${sub ? ' · ' + esc(sub) : ''}`;
+      const lead = nx.block !== curBlock ? `Next block: <b>${esc(nx.block)}</b> — ` : 'Next set: ';
+      return `${lead}<b>${esc(setText(s))}</b> @ ${fmt(s.interval)}${sub ? ' · ' + esc(sub) : ''}`;
     }
     return `Next: <b>${esc(repLine(nx))}</b>${sub ? ' · ' + esc(sub) : ''}`;
   }
@@ -620,11 +681,13 @@ function updateClock(el){
   $('#cbarfill').style.width = Math.min(100, (el - seg.start) / seg.dur * 100) + '%';
   const isLastRep = r.idx === r.segs.length-1;
   const nSets = r.w.sets.length;
+  const bset = r.w.sets[seg.type === 'lead' ? 0 : Math.min(seg.si, nSets-1)];
+  const blk = (bset && bset.block) || 'Main';
   let phase = '', ik = '', im = '', isb = '', iln = '', sw = '';
   if(seg.type === 'lead'){
     phase = 'GET READY';
     const s0 = r.w.sets[0];
-    ik = 'FIRST SET'; im = setText(s0); isb = typeText(s0);
+    ik = blk.toUpperCase() + ' · FIRST SET'; im = setText(s0); isb = typeText(s0);
   } else if(seg.type === 'rest'){
     phase = 'REST';
     const nxs = r.w.sets[seg.si + 1];
@@ -632,7 +695,7 @@ function updateClock(el){
   } else {
     phase = isLastRep ? 'WORKOUT ENDS IN' : (seg.lastOfSet ? 'SET ENDS IN' : 'SEND-OFF IN');
     const s = r.w.sets[seg.si];
-    ik = `SET ${seg.si+1} OF ${nSets} · REP ${seg.ri+1} OF ${s.reps}`;
+    ik = `${seg.block.toUpperCase()} · SET ${seg.bi} OF ${seg.bn} · REP ${seg.ri+1} OF ${s.reps}`;
     im = repLine(seg); isb = repSub(seg);
     const lw = lengthsOf(seg.dist, r.w.pool);
     iln = lw.whole ? `${Math.round(lw.l)} length${Math.round(lw.l)===1?'':'s'} of ${poolLabel(r.w.pool)} ${r.w.unit}` : '';
@@ -640,7 +703,7 @@ function updateClock(el){
   }
   $('#phase').textContent = phase;
   $('#swimmed').textContent = sw;
-  $('#ik').textContent = ik; $('#im').textContent = im; $('#isb').textContent = isb; $('#iln').textContent = iln;
+  $('#ik').textContent = ik; $('#ik').style.color = blockColor(blk, true); $('#im').textContent = im; $('#isb').textContent = isb; $('#iln').textContent = iln;
   $('#nxt').innerHTML = describeNext(r);
   const fin = $('#fin');
   if(seg.type === 'rep'){
@@ -668,14 +731,19 @@ function summaryHTML(){
   const st = stats(rec), u = rec.unit;
   const paceStr = st.pace != null ? fmt(st.pace) : '—';
   const tile = (k, v, unit, d) => `<div class="tile"><div class="k">${k}</div><div class="v num">${v}<span class="u"> ${unit||''}</span></div><div class="d">${d||'&nbsp;'}</div></div>`;
+  let lastBlk = null;
   const setRows = st.bySet.map(b => {
     const planned = b.s.reps;
-    return `<tr><td><b>${b.si+1}. ${esc(setText(b.s))}</b>${typeText(b.s) ? ` <span class="tag" style="font-size:12px">${esc(typeText(b.s))}</span>` : ''}
+    const hdr = (b.s.block && b.s.block !== lastBlk) ? `<tr><td colspan="3" class="bsub" style="--bc:${blockColor(b.s.block)}">${esc(b.s.block)}</td></tr>` : '';
+    lastBlk = b.s.block;
+    return hdr + `<tr><td><b>${b.si+1}. ${esc(setText(b.s))}</b>${typeText(b.s) ? ` <span class="tag" style="font-size:12px">${esc(typeText(b.s))}</span>` : ''}
         ${b.rr.length < planned ? `<span class="muted"> (${b.rr.length} of ${planned} done)</span>` : ''}
         <div class="times num">${b.rr.map(r => r.tap != null ? fmtT(r.tap) : '—').join(' · ')}</div></td>
       <td class="r num">${fmtDist(b.dist)}</td><td class="r num">${b.pace != null ? fmt(b.pace) : '—'}</td></tr>`;
   }).join('');
   const grpRows = arr => arr.map(g => `<tr><td><b>${esc(g.key)}</b></td><td class="r num">${fmtDist(g.dist)}</td><td class="r num">${g.pace != null ? fmt(g.pace) : '—'}</td></tr>`).join('');
+  const blockCard = (rec.reps.some(r => r.block) && st.byBlock.length)
+    ? `<div class="card"><h3>By block</h3><table><tr><th>Block</th><th class="r">${u}</th><th class="r">Pace /100</th></tr>${grpRows(st.byBlock)}</table></div>` : '';
   return `<div class="page">
     <div class="top">
       <button class="btn" data-act="${from==='run'?'home':'back-hist'}">${from==='run'?'Done':'‹ History'}</button>
@@ -693,7 +761,7 @@ function summaryHTML(){
       <div class="card"><h3>Sets</h3>
         <table><tr><th>Set &amp; rep times</th><th class="r">${u}</th><th class="r">Pace /100</th></tr>${setRows || '<tr><td colspan="3" class="muted">No completed reps.</td></tr>'}</table></div>
       <div>
-        <div class="card"><h3>By stroke</h3>
+        ${blockCard}<div class="card" style="${blockCard ? 'margin-top:14px' : ''}"><h3>By stroke</h3>
           <table><tr><th>Stroke</th><th class="r">${u}</th><th class="r">Pace /100</th></tr>${grpRows(st.byStroke) || '<tr><td colspan="3" class="muted">—</td></tr>'}</table></div>
         <div class="card" style="margin-top:14px"><h3>By type</h3>
           <table><tr><th>Type</th><th class="r">${u}</th><th class="r">Pace /100</th></tr>${grpRows(st.byType) || '<tr><td colspan="3" class="muted">—</td></tr>'}</table></div>
@@ -712,6 +780,25 @@ function toast(msg){
 
 // ---------- actions ----------
 const go = scr => { S.screen = scr; render(); };
+function applyBlock(name){
+  const d = S.dlg; S.dlg = null; renderDialog();
+  if(!d) return;
+  if(d.mode === 'add'){
+    const a = S.draft.sets, last = a[a.length-1];
+    S.edit = {idx:null, set:newSet(last, name), at:null, block0:name}; renderModal();
+  } else {
+    const run = runsOf(S.draft)[d.r]; if(!run) return;
+    for(let i = run.start; i <= run.end; i++) S.draft.sets[i].block = name;
+    saveDraft(); render();
+  }
+}
+function moveRun(r, dir){
+  const runs = runsOf(S.draft), a = S.draft.sets, lo = dir < 0 ? r-1 : r, hi = lo + 1;
+  if(lo < 0 || hi >= runs.length) return;
+  const A = runs[lo], B = runs[hi];
+  S.draft.sets = [...a.slice(0, A.start), ...a.slice(B.start, B.end+1), ...a.slice(A.start, A.end+1), ...a.slice(B.end+1)];
+  saveDraft(); render();
+}
 const findT = id => S.templates.find(t => t.id === id);
 const acts = {
   new(){ S.draft = newWorkout(); saveDraft(); go('builder'); },
@@ -719,8 +806,8 @@ const acts = {
   tab(el){ S.tab = el.dataset.v; render(); },
   home(){ S.summary = null; go('home'); },
   'back-hist'(){ S.tab = 'history'; S.summary = null; go('home'); },
-  loadT(el){ const t = findT(el.dataset.id); if(t){ S.draft = clone(t); saveDraft(); go('builder'); } },
-  startT(el){ const t = findT(el.dataset.id); if(t){ S.draft = clone(t); saveDraft(); startWorkout(); } },
+  loadT(el){ const t = findT(el.dataset.id); if(t){ S.draft = normW(clone(t)); saveDraft(); go('builder'); } },
+  startT(el){ const t = findT(el.dataset.id); if(t){ S.draft = normW(clone(t)); saveDraft(); startWorkout(); } },
   dupT(el){ const t = findT(el.dataset.id); if(!t) return;
     const c = clone(t); c.id = uid(); c.name = (t.name || 'Untitled') + ' (copy)';
     S.templates.unshift(c); store.set('templates', S.templates); render(); toast('Template copied'); },
@@ -729,16 +816,33 @@ const acts = {
   viewH(el){ const rec = S.history.find(r => r.id === el.dataset.id); if(rec){ S.summary = {rec, from:'history'}; go('summary'); } },
   delH(el, ev){ ev.stopPropagation(); const id = el.dataset.id, rec = S.history.find(r => r.id === id); if(!rec) return;
     ask(`Delete “${rec.name}” from ${fmtDate(rec.date)}?`, 'Delete', () => { S.history = S.history.filter(x => x.id !== id); store.set('history', S.history); render(); }, true); },
-  again(){ const rec = S.summary.rec; S.draft = {id: uid(), name: rec.name, unit: rec.unit, pool: rec.pool, sets: clone(rec.sets)}; saveDraft(); S.summary = null; go('builder'); },
+  again(){ const rec = S.summary.rec; S.draft = {id: uid(), name: rec.name, unit: rec.unit, pool: rec.pool, sets: clone(rec.sets)}; normW(S.draft); saveDraft(); S.summary = null; go('builder'); },
 
   // builder
   unit(el){ S.draft.unit = el.dataset.v; saveDraft(); render(); },
   pool(el){ S.draft.pool = parseFloat(el.dataset.v); saveDraft(); render(); },
-  addset(){ const last = S.draft.sets[S.draft.sets.length-1]; S.edit = {idx:null, set:newSet(last)}; renderModal(); },
-  editset(el){ const i = +el.dataset.i; S.edit = {idx:i, set:clone(S.draft.sets[i])}; renderModal(); },
+  addset(el){ // add to the end of a block
+    const run = runsOf(S.draft)[+el.dataset.r]; if(!run) return;
+    const last = S.draft.sets[run.end];
+    S.edit = {idx:null, set:newSet(last, run.name), at:run.end+1, block0:run.name}; renderModal(); },
+  addblock(){ S.dlg = {type:'block', mode:'add', value:''}; renderDialog(); },
+  rename(el){ const run = runsOf(S.draft)[+el.dataset.r]; if(run){ S.dlg = {type:'block', mode:'rename', r:+el.dataset.r, value:run.name}; renderDialog(); } },
+  'blk-pick'(el){ applyBlock(el.dataset.v); },
+  'blk-ok'(){ const v = ($('#blkname').value || '').trim().slice(0, 24); if(!v){ toast('Pick or type a name'); return; } applyBlock(v); },
+  runup(el){ moveRun(+el.dataset.r, -1); },
+  rundown(el){ moveRun(+el.dataset.r, 1); },
+  rundel(el){ const r = +el.dataset.r, run = runsOf(S.draft)[r]; if(!run) return; const n = run.end - run.start + 1;
+    ask(`Delete the “${run.name}” block and its ${n} set${n===1?'':'s'}?`, 'Delete', () => { S.draft.sets.splice(run.start, n); saveDraft(); render(); }, true); },
+  editset(el){ const i = +el.dataset.i; S.edit = {idx:i, set:clone(S.draft.sets[i]), block0:S.draft.sets[i].block}; renderModal(); },
   copyset(el){ const i = +el.dataset.i; S.draft.sets.splice(i+1, 0, newSet(S.draft.sets[i])); saveDraft(); render(); },
-  up(el){ const i = +el.dataset.i; if(i > 0){ const a = S.draft.sets; [a[i-1], a[i]] = [a[i], a[i-1]]; saveDraft(); render(); } },
-  down(el){ const i = +el.dataset.i, a = S.draft.sets; if(i < a.length-1){ [a[i+1], a[i]] = [a[i], a[i+1]]; saveDraft(); render(); } },
+  up(el){ const i = +el.dataset.i, a = S.draft.sets; if(i < 1) return;
+    if(a[i-1].block !== a[i].block) a[i].block = a[i-1].block; // top of a block: hop into the block above
+    else [a[i-1], a[i]] = [a[i], a[i-1]];
+    saveDraft(); render(); },
+  down(el){ const i = +el.dataset.i, a = S.draft.sets; if(i >= a.length-1) return;
+    if(a[i+1].block !== a[i].block) a[i].block = a[i+1].block; // bottom of a block: hop into the block below
+    else [a[i+1], a[i]] = [a[i], a[i+1]];
+    saveDraft(); render(); },
   delset(el){ const i = +el.dataset.i; S.draft.sets.splice(i, 1); saveDraft(); render(); },
   savetpl(){
     const w = S.draft; if(!w.sets.length){ toast('Add a set first'); return; }
@@ -754,6 +858,7 @@ const acts = {
   'e-dist'(el){ S.edit.set.dist = +el.dataset.v; renderModal(); },
   'e-stroke'(el){ const s = S.edit.set, k = el.dataset.v, i = s.strokes.indexOf(k);
     if(i >= 0){ if(s.strokes.length > 1) s.strokes.splice(i, 1); } else s.strokes.push(k); renderModal(); },
+  'e-block'(el){ S.edit.set.block = el.dataset.v; renderModal(); },
   'e-type'(el){ S.edit.set.type = el.dataset.v; renderModal(); },
   'e-time'(el){ const s = S.edit.set, f = el.dataset.field, min = f === 'interval' ? 5 : 0;
     if(el.dataset.set != null) s[f] = +el.dataset.set; else s[f] = Math.max(min, s[f] + (+el.dataset.d));
@@ -765,7 +870,11 @@ const acts = {
     s.dist = Math.max(1, Math.round(s.dist) || 50);
     s.interval = Math.max(5, Math.round(s.interval) || 60);
     s.rest = Math.max(0, Math.round(s.rest) || 0);
-    if(e.idx == null) S.draft.sets.push(s); else S.draft.sets[e.idx] = s;
+    s.block = (s.block || 'Main').trim().slice(0, 24) || 'Main';
+    const moved = s.block !== e.block0, a = S.draft.sets;
+    if(e.idx == null){ if(moved || e.at == null) placeInBlock(a, s, s.block); else a.splice(e.at, 0, s); }
+    else if(moved){ a.splice(e.idx, 1); placeInBlock(a, s, s.block); }
+    else a[e.idx] = s;
     S.edit = null; saveDraft(); render();
   },
 
@@ -791,6 +900,7 @@ document.addEventListener('input', e => {
     if(f === 'drill') s.drill = t.value;
     else if(f === 'reps'){ const v = parseInt(t.value, 10); if(v > 0) s.reps = Math.min(99, v); }
     else if(f === 'dist'){ const v = parseInt(t.value, 10); if(v > 0){ s.dist = v; const h = $('#disthint'); if(h){ h.textContent = distHint(); h.className = 'hint' + (lengthsOf(s.dist, S.draft.pool).whole ? '' : ' warn'); } } }
+    else if(f === 'block'){ const v = t.value.trim().slice(0, 24); if(v){ s.block = v; document.querySelectorAll('[data-act=e-block]').forEach(c => c.classList.remove('on')); } }
     else if(f === 'interval' || f === 'rest'){ const v = parseTime(t.value); if(v != null && v >= (f === 'interval' ? 5 : 0)) s[f] = v; }
   }
 });
